@@ -1,8 +1,12 @@
 import React from 'react';
 import LogoSvg from './LogoSvg';
 import { Link } from "react-router-dom";
+import { useUser } from "@clerk/clerk-react";
+import { Button } from "@/components/ui/button";
 
 const HeroBanner = () => {
+  const { user } = useUser();
+
   return (
     <div className="relative w-full bg-[#0A0A0A] overflow-hidden">
       {/* Kenyan-inspired Background */}
@@ -36,17 +40,19 @@ const HeroBanner = () => {
           </p>
 
           {/* Call to Action Buttons */}
-                  <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
-                      <Link to={"/job"}>
-                          <button className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full transition duration-300 ease-in-out transform hover:scale-105">
-                              Find Jobs
-                          </button>
-                      </Link>
-                      <Link to={"/post-job"}>
-                          <button className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-full transition duration-300 ease-in-out transform hover:scale-105">
-                              Post a Job
-                          </button>
-                      </Link>
+          <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
+            <Link to="/job-listing">
+              <Button className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full transition duration-300 ease-in-out transform hover:scale-105">
+                Find Jobs
+              </Button>
+            </Link>
+            {user?.unsafeMetadata?.role === "recruiter" && (
+              <Link to="/post-job">
+                <Button className="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-full transition duration-300 ease-in-out transform hover:scale-105">
+                  Post a Job
+                </Button>
+              </Link>
+            )}
           </div>
 
           {/* Kenyan Flag Accent */}
