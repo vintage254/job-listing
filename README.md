@@ -1,6 +1,6 @@
 # KE Ajiralink - Kenyan Job Listing Platform
 
-![KE Ajiralink Logo](public/KE-ajiralink-logo.svg)
+![KE Ajiralink Logo](public/ke-ajiralink-logo.svg)
 
 ## About KE Ajiralink
 
