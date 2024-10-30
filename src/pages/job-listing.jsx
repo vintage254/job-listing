@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { BookmarkIcon, MapPinIcon, BriefcaseIcon } from "lucide-react";
+import SaveJobButton from '@/components/SaveJobButton';
 
 // Add image error handling component
 const CompanyLogo = ({ src, alt, className }) => {
@@ -107,14 +108,20 @@ const JobListingPage = () => {
           </div>
           
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => handleSaveJob(job.id, isSaved)}
-              className={isSaved ? 'text-blue-500' : 'text-gray-500'}
-            >
-              <BookmarkIcon className="w-5 h-5" />
-            </Button>
+            <SaveJobButton 
+              jobId={job.id} 
+              initialSaved={isSaved} 
+              jobData={{
+                title: job.title,
+                company_name: job.company_name,
+                company_logo: job.company_logo,
+                location: job.location,
+                description: job.description,
+                salary_range: job.salary_range,
+                job_type: job.job_type,
+                source: job.source || 'external'
+              }} 
+            />
             <Link to={`/job/${job.id}`}>
               <Button>View Details</Button>
             </Link>

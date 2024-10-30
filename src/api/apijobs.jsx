@@ -15,12 +15,12 @@ const ADZUNA_CONFIG = {
 };
 
 const FINDWORK_CONFIG = {
-  baseURL: 'https://findwork.dev/api/jobs/',
+  baseURL: '/findwork',
   apiKey: '11f6c5539b1d332119794b0edc21108c38101c60'
 };
 
 const REED_CONFIG = {
-  baseURL: 'https://www.reed.co.uk/api/1.0/search',
+  baseURL: '/reed',
   apiKey: '3418b912-4e3d-4eae-8300-da8575316ff6'
 };
 
@@ -94,6 +94,20 @@ const htmlToText = (html) => {
   return text;
 };
 
+// Update normalizeId function to handle special characters better
+const normalizeId = (source, id) => {
+  // Remove special characters and spaces, keeping only alphanumeric characters and hyphens
+  const cleanId = (id || '').toString()
+    .replace(/[^a-zA-Z0-9-]/g, '_')
+    .toLowerCase();
+  
+  // Add source prefix if not already present
+  const prefix = source.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+  
+  // Ensure the ID is URL-safe
+  return encodeURIComponent(`${prefix}_${cleanId}`);
+};
+
 // Update normalizeJobData function
 const normalizeJobData = (job, source) => {
   // Skip jobs without English titles or descriptions
@@ -107,7 +121,6 @@ const normalizeJobData = (job, source) => {
     if (typeof job.description === 'string') {
       cleanDescription = htmlToText(job.description);
     } else if (typeof job.description === 'object') {
-      // Handle cases where description might be an object or array
       cleanDescription = JSON.stringify(job.description);
     }
   } catch (error) {
@@ -115,21 +128,14 @@ const normalizeJobData = (job, source) => {
     cleanDescription = 'Description not available';
   }
 
-  // Handle company logo - only include if it exists and is valid
-  let companyLogo = null;
-  if (job.company?.logo_url || job.company?.logo || job.company_logo) {
-    companyLogo = job.company?.logo_url || job.company?.logo || job.company_logo;
-    // Verify logo URL is valid
-    if (!companyLogo.startsWith('http') && !companyLogo.startsWith('/')) {
-      companyLogo = null;
-    }
-  }
+  // Generate normalized ID
+  const normalizedId = normalizeId(source, job.id || Math.random().toString(36).substr(2, 9));
 
   return {
-    id: `${source}_${job.id || Math.random().toString(36).substr(2, 9)}`,
+    id: normalizedId,
     title: job.title,
     company_name: job.company?.name || job.company_name || 'Unknown Company',
-    ...(companyLogo && { company_logo: companyLogo }), // Only include if logo exists
+    company_logo: job.company?.logo_url || job.company?.logo || job.company_logo,
     location: job.location?.display_name || job.location || 'Location not specified',
     salary_range: job.salary_min && job.salary_max ? 
       `KES ${job.salary_min.toLocaleString()} - ${job.salary_max.toLocaleString()} per month` : 
@@ -163,13 +169,21 @@ const fetchAdzunaJobs = async (query = '') => {
   }
 };
 
-// Function to fetch jobs from FindWork
+// Add API_CONFIG at the top with other configurations
+const API_CONFIG = {
+  PROXY_URL: 'http://localhost:3001/api',
+  FINDWORK_CONFIG: {
+    baseURL: '/findwork',
+  },
+  REED_CONFIG: {
+    baseURL: '/reed',
+  }
+};
+
+// Update FindWork API call
 const fetchFindWorkJobs = async (query = '') => {
   try {
-    const response = await axios.get(FINDWORK_CONFIG.baseURL, {
-      headers: {
-        'Authorization': `Token ${FINDWORK_CONFIG.apiKey}`
-      },
+    const response = await axios.get(`${API_CONFIG.PROXY_URL}${API_CONFIG.FINDWORK_CONFIG.baseURL}`, {
       params: {
         search: query,
         location: 'kenya'
@@ -182,13 +196,10 @@ const fetchFindWorkJobs = async (query = '') => {
   }
 };
 
-// Function to fetch jobs from Reed
+// Update Reed API call
 const fetchReedJobs = async (query = '') => {
   try {
-    const response = await axios.get(REED_CONFIG.baseURL, {
-      headers: {
-        'Authorization': `Basic ${Buffer.from(REED_CONFIG.apiKey + ':').toString('base64')}`
-      },
+    const response = await axios.get(`${API_CONFIG.PROXY_URL}${API_CONFIG.REED_CONFIG.baseURL}`, {
       params: {
         keywords: query,
         locationName: 'kenya'
@@ -360,8 +371,9 @@ export const getJobs = async ({ location, company_id, searchQuery }) => {
       .from("jobs")
       .select(`
         *,
-        saved_jobs (*),
-        companies (name, logo_url)
+        saved_jobs (
+          user_id
+        )
       `);
 
     if (location) {
@@ -376,16 +388,37 @@ export const getJobs = async ({ location, company_id, searchQuery }) => {
       query = query.or(`title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`);
     }
 
-    const { data, error } = await query;
+    const { data: localJobs, error } = await query;
 
     if (error) throw error;
 
-    // Merge with external API jobs if needed
+    // Fetch external jobs if needed
     const externalJobs = await fetchExternalJobs(searchQuery);
-    return [...data, ...externalJobs];
+
+    // Combine local and external jobs
+    const allJobs = [...(localJobs || []), ...externalJobs];
+
+    return allJobs;
   } catch (error) {
     console.error("Error fetching jobs:", error);
     throw error;
+  }
+};
+
+// Add this helper function to check if a job exists
+export const checkJobExists = async (jobId) => {
+  try {
+    const { data, error } = await supabase
+      .from("jobs")
+      .select("id")
+      .eq("id", jobId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') throw error;
+    return !!data;
+  } catch (error) {
+    console.error("Error checking job:", error);
+    return false;
   }
 };
 
@@ -396,9 +429,12 @@ export const getSavedJobs = async (userId) => {
       .from("saved_jobs")
       .select(`
         *,
-        jobs (
+        job:jobs!inner (
           *,
-          companies (name, logo_url)
+          company:companies (
+            name,
+            logo_url
+          )
         )
       `)
       .eq('user_id', userId);
@@ -414,18 +450,120 @@ export const getSavedJobs = async (userId) => {
 // Get single job
 export const getSingleJob = async (jobId) => {
   try {
-    const { data, error } = await supabase
+    if (!jobId) {
+      throw new Error('Job ID is required');
+    }
+
+    // Ensure jobId is a string and handle potential objects
+    const jobIdString = typeof jobId === 'object' ? 
+      jobId.job_id?.toString() : 
+      jobId.toString();
+
+    console.log('Fetching job with ID:', jobIdString);
+
+    if (!jobIdString) {
+      throw new Error('Invalid job ID format');
+    }
+
+    // First try to get the job from our database
+    const { data: localJob, error: localError } = await supabase
       .from("jobs")
       .select(`
         *,
         companies (name, logo_url),
         applications (*)
       `)
-      .eq('id', jobId)
-      .single();
+      .eq('id', jobIdString)
+      .maybeSingle();
 
-    if (error) throw error;
-    return data;
+    if (localJob) {
+      console.log('Found job in local database:', localJob);
+      return localJob;
+    }
+
+    // Try to determine the source from the job ID
+    let source = null;
+    let originalId = jobIdString;
+
+    // Check for known source patterns
+    if (jobIdString.includes('arbeitnow_')) {
+      source = 'arbeitnow';
+      originalId = jobIdString.replace('arbeitnow_', '');
+    } else if (jobIdString.includes('adzuna_')) {
+      source = 'adzuna';
+      originalId = jobIdString.replace('adzuna_', '');
+    } else if (jobIdString.includes('findwork_')) {
+      source = 'findwork';
+      originalId = jobIdString.replace('findwork_', '');
+    } else if (jobIdString.includes('reed_')) {
+      source = 'reed';
+      originalId = jobIdString.replace('reed_', '');
+    }
+
+    console.log('Determined source:', source, 'originalId:', originalId);
+    
+    // Fetch from appropriate external source
+    let externalJob = null;
+    if (source) {
+      switch(source.toLowerCase()) {
+        case 'adzuna':
+          const adzunaJobs = await fetchAdzunaJobs(originalId);
+          externalJob = adzunaJobs?.[0];
+          break;
+        case 'findwork':
+          const findworkJobs = await fetchFindWorkJobs(originalId);
+          externalJob = findworkJobs?.[0];
+          break;
+        case 'reed':
+          const reedJobs = await fetchReedJobs(originalId);
+          externalJob = reedJobs?.[0];
+          break;
+        case 'arbeitnow':
+          const arbeitnowJobs = await fetchArbeitnowJobs();
+          externalJob = arbeitnowJobs?.find(job => 
+            job.id === originalId || 
+            job.id.includes(originalId)
+          );
+          break;
+      }
+    }
+
+    // If no source was determined or job wasn't found, try all sources
+    if (!externalJob) {
+      console.log('Job not found in primary source, trying all sources...');
+      const allJobs = await fetchExternalJobs();
+      externalJob = allJobs.find(job => 
+        job.id === originalId || 
+        job.id.includes(originalId) ||
+        job.id === jobIdString ||
+        job.id.includes(jobIdString)
+      );
+    }
+
+    if (!externalJob) {
+      console.log('Job not found in any source');
+      throw new Error(`Job not found with ID: ${jobIdString}`);
+    }
+
+    console.log('Found external job:', externalJob);
+
+    // Normalize the external job data
+    const normalizedJob = normalizeJobData(externalJob, source || 'external');
+    
+    // Store the job in our database for future reference
+    if (normalizedJob) {
+      const { error: insertError } = await supabase
+        .from("jobs")
+        .insert([normalizedJob])
+        .single();
+
+      if (insertError) {
+        console.error('Error storing external job:', insertError);
+      }
+    }
+
+    return normalizedJob;
+
   } catch (error) {
     console.error("Error fetching job:", error);
     throw error;
@@ -433,21 +571,65 @@ export const getSingleJob = async (jobId) => {
 };
 
 // Save/unsave job
-export const toggleSaveJob = async (userId, jobId, alreadySaved) => {
+export const toggleSaveJob = async (userId, jobId, alreadySaved, jobData) => {
   try {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    if (!jobData) {
+      throw new Error('Job data is required');
+    }
+
+    // Use the same ID normalization
+    const normalizedJobId = normalizeId(jobData.source || 'external', jobId);
+
     if (alreadySaved) {
       const { error } = await supabase
         .from("saved_jobs")
         .delete()
-        .eq('job_id', jobId)
-        .eq('user_id', userId);
+        .eq('user_id', userId.toString())
+        .eq('job_id', normalizedJobId);
 
       if (error) throw error;
       return null;
     } else {
+      // First, check if job exists in jobs table using the normalized ID
+      const { data: existingJob } = await supabase
+        .from("jobs")
+        .select("id")
+        .eq('id', normalizedJobId)
+        .maybeSingle();
+
+      // If job doesn't exist, create it first
+      if (!existingJob) {
+        const { error: insertError } = await supabase
+          .from("jobs")
+          .insert([{
+            id: normalizedJobId,
+            title: jobData.title || 'No Title',
+            company_name: jobData.company_name || 'Unknown Company',
+            company_logo: jobData.company_logo,
+            location: jobData.location || 'Location not specified',
+            description: jobData.description || '',
+            salary_range: jobData.salary_range || 'Not specified',
+            job_type: jobData.job_type || 'Not specified',
+            external_id: jobId,
+            source: jobData.source || 'external',
+            created_at: new Date().toISOString()
+          }]);
+
+        if (insertError) throw insertError;
+      }
+
+      // Now save the job
       const { data, error } = await supabase
         .from("saved_jobs")
-        .insert([{ user_id: userId, job_id: jobId }])
+        .insert([{ 
+          user_id: userId.toString(), 
+          job_id: normalizedJobId,
+          created_at: new Date().toISOString()
+        }])
         .select();
 
       if (error) throw error;
@@ -455,7 +637,7 @@ export const toggleSaveJob = async (userId, jobId, alreadySaved) => {
     }
   } catch (error) {
     console.error("Error toggling job save:", error);
-    throw error;
+    throw new Error(error.message || 'Failed to save/unsave job');
   }
 };
 

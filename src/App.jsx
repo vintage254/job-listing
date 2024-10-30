@@ -10,6 +10,8 @@ import MyJobsPage from './pages/my-jobs'
 import PostJobPage from './pages/post-job'
 import SavedJobPage from './pages/saved-job'
 import ProtectedRoute from './components/protected-route'
+import { ToastProvider } from "@/components/ui/toast"
+import ErrorBoundary from '@/components/ErrorBoundary'
 
 
 const router = createBrowserRouter([
@@ -76,9 +78,13 @@ const router = createBrowserRouter([
 ])
 function App() {
   return (
-    <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-    <RouterProvider router={router} />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+          <RouterProvider router={router} />
+        </ThemeProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   )
 }
 
