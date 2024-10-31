@@ -12,6 +12,7 @@ import SavedJobPage from './pages/saved-job'
 import ProtectedRoute from './components/protected-route'
 import { ToastProvider } from "@/components/ui/toast"
 import ErrorBoundary from '@/components/ErrorBoundary'
+import EditJobPage from './pages/edit-job'
 
 
 const router = createBrowserRouter([
@@ -70,6 +71,15 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <SavedJobPage/>
+          </ProtectedRoute>
+        )
+      },
+      // In App.jsx routes array{
+      {
+        path: '/edit-job/:id',
+        element: (
+          <ProtectedRoute>
+            <EditJobPage />
           </ProtectedRoute>
         )
       }

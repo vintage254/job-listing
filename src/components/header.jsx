@@ -68,7 +68,7 @@ const Header = () => {
                 <UserButton.Link
                   label="Saved Jobs"
                   labelIcon={<Heart size={15} />}
-                  href="/saved-jobs"
+                  href="/saved-job"
                 />
                 <UserButton.Action label="manageAccount" />
               </UserButton.MenuItems>

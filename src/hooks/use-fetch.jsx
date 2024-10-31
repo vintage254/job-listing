@@ -1,21 +1,24 @@
-import { useState } from "react";
+import { useState } from 'react';
 
-const useFetch = (fn, params = {}) => {
+const useFetch = (fn) => {
   const [loading, setLoading] = useState(false);
-  const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [data, setData] = useState(null);
 
   const execute = async (...args) => {
     try {
       setLoading(true);
       setError(null);
-      const result = await fn(params, ...args);
+      // If first argument is an object and has an id property, use that directly
+      const params = args[0];
+      const actualParams = typeof params === 'object' && params.id ? params.id : args[0];
+      const result = await fn(actualParams);
       setData(result);
       return result;
-    } catch (err) {
-      setError(err);
-      console.error("Error in useFetch:", err);
-      return null;
+    } catch (error) {
+      setError(error);
+      console.error('Error in useFetch:', error);
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -23,9 +26,9 @@ const useFetch = (fn, params = {}) => {
 
   return {
     loading,
-    data,
     error,
-    fn: execute,
+    data,
+    fn: execute
   };
 };
 

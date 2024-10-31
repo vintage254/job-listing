@@ -1,163 +1,122 @@
 import { useEffect } from "react";
 import { BarLoader } from "react-spinners";
 import MDEditor from "@uiw/react-md-editor";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
-import { Briefcase, DoorClosed, DoorOpen, MapPinIcon } from "lucide-react";
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ApplyJobDrawer } from "@/components/apply-job";
-import ApplicationCard from "@/components/application-card";
-
+import { Briefcase, MapPinIcon, CalendarIcon, ClipboardListIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import useFetch from "@/hooks/use-fetch";
-import { getSingleJob, updateHiringStatus } from "@/api/apijobs";
+import { getSingleJob } from "@/api/apijobs";
 
 const JobPage = () => {
-  const { id } = useParams();
+  const params = useParams();
   const { isLoaded, user } = useUser();
 
   const {
     loading: loadingJob,
     data: job,
-    fn: fnJob,
-  } = useFetch(getSingleJob, {
-    job_id: id?.toString(),
-  });
+    fn: fetchJob,
+  } = useFetch(getSingleJob);
 
   useEffect(() => {
-    if (isLoaded && id) {
-      fnJob(id.toString());
+    if (isLoaded && params?.id) {
+      console.log('Fetching job with ID:', params.id);
+      fetchJob(params.id);
     }
-  }, [isLoaded, id]);
-
-  const { loading: loadingHiringStatus, fn: fnHiringStatus } = useFetch(
-    updateHiringStatus,
-    {
-      job_id: id,
-    }
-  );
-
-  const handleStatusChange = (value) => {
-    // Only allow status change for internal jobs
-    if (!job?.source) {
-      const isOpen = value === "open";
-      fnHiringStatus(isOpen).then(() => fnJob());
-    }
-  };
+  }, [isLoaded, params?.id]);
 
   if (!isLoaded || loadingJob) {
-    return <BarLoader className="mb-4" width={"100%"} color="#36d7b7" />;
+    return <BarLoader className='mb-4' width={'100%'} color="#36d7b7" />;
   }
 
-  // Check if this is an external job
-  const isExternalJob = job?.source && ['adzuna', 'findwork', 'reed', 'arbeitnow'].includes(job.source);
+  if (!job) {
+    return (
+      <div className="text-center py-12">
+        <h2 className="text-2xl font-bold">Job not found</h2>
+        <Link to="/job-listing" className="text-blue-500 hover:underline">
+          Back to Jobs
+        </Link>
+      </div>
+    );
+  }
+
+  // Format deadline date
+  const formattedDeadline = job.application_deadline 
+    ? new Date(job.application_deadline).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+    : null;
+
+  // Check if job has expired
+  const hasExpired = job.application_deadline 
+    ? new Date(job.application_deadline) < new Date() 
+    : false;
 
   return (
     <div className="flex flex-col gap-8 mt-5">
       <div className="flex flex-col-reverse gap-6 md:flex-row justify-between items-center">
         <h1 className="gradient-title font-extrabold pb-3 text-4xl sm:text-6xl">
-          {job?.title}
+          {job.title}
         </h1>
-        {job?.company_logo && (
-          <img src={job.company_logo} className="h-12" alt={job?.company_name} />
+        {job.company_logo && (
+          <img src={job.company_logo} className="h-12" alt={job.company_name} />
         )}
       </div>
 
-      <div className="flex justify-between">
+      <div className="flex justify-between flex-wrap gap-4">
         <div className="flex gap-2">
-          <MapPinIcon /> {job?.location}
+          <MapPinIcon /> {job.location}
         </div>
-        {!isExternalJob && (
+        <div className="flex gap-2">
+          <Briefcase /> {job.applications?.length || 0} Applicants
+        </div>
+        {formattedDeadline && (
           <div className="flex gap-2">
-            <Briefcase /> {job?.applications?.length} Applicants
-          </div>
-        )}
-        {!isExternalJob && (
-          <div className="flex gap-2">
-            {job?.isOpen ? (
-              <>
-                <DoorOpen /> Open
-              </>
-            ) : (
-              <>
-                <DoorClosed /> Closed
-              </>
-            )}
+            <CalendarIcon />
+            <span className={hasExpired ? "text-red-500" : ""}>
+              Deadline: {formattedDeadline}
+              {hasExpired && " (Expired)"}
+            </span>
           </div>
         )}
       </div>
-
-      {!isExternalJob && job?.recruiter_id === user?.id && (
-        <Select onValueChange={handleStatusChange}>
-          <SelectTrigger
-            className={`w-full ${job?.isOpen ? "bg-green-950" : "bg-red-950"}`}
-          >
-            <SelectValue
-              placeholder={
-                "Hiring Status " + (job?.isOpen ? "( Open )" : "( Closed )")
-              }
-            />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="open">Open</SelectItem>
-            <SelectItem value="closed">Closed</SelectItem>
-          </SelectContent>
-        </Select>
-      )}
 
       <h2 className="text-2xl sm:text-3xl font-bold">About the job</h2>
-      <p className="sm:text-lg">{job?.description}</p>
+      <p className="sm:text-lg">{job.description}</p>
 
-      {job?.requirements && (
+      {job.requirements && (
         <>
           <h2 className="text-2xl sm:text-3xl font-bold">
             What we are looking for
           </h2>
           <MDEditor.Markdown
-            source={job?.requirements}
+            source={job.requirements}
             className="bg-transparent sm:text-lg"
           />
         </>
       )}
 
-      {!isExternalJob && job?.recruiter_id !== user?.id && (
-        <ApplyJobDrawer
-          job={job}
-          user={user}
-          fetchJob={fnJob}
-          applied={job?.applications?.find((ap) => ap.candidate_id === user.id)}
-        />
-      )}
-
-      {isExternalJob && (
-        <a 
-          href={job.external_url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-center"
-        >
-          Apply on {job.source}
-        </a>
-      )}
-
-      {loadingHiringStatus && <BarLoader width={"100%"} color="#36d7b7" />}
-      
-      {!isExternalJob && job?.applications?.length > 0 && job?.recruiter_id === user?.id && (
-        <div className="flex flex-col gap-2">
-          <h2 className="font-bold mb-4 text-xl ml-1">Applications</h2>
-          {job?.applications.map((application) => {
-            return (
-              <ApplicationCard key={application.id} application={application} />
-            );
-          })}
+      {/* Application Requirements Section */}
+      {job.application_requirements?.length > 0 && (
+        <div className="bg-gray-100 dark:bg-gray-800 p-6 rounded-lg">
+          <h2 className="text-2xl font-bold flex items-center gap-2 mb-4">
+            <ClipboardListIcon /> Application Requirements
+          </h2>
+          <ul className="list-disc list-inside space-y-2">
+            {job.application_requirements.map((req, index) => (
+              <li key={index} className="text-lg">
+                {req.type}
+                {req.allowMultiple && " (Multiple files allowed)"}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
+
+      {/* ... rest of your component ... */}
     </div>
   );
 };
