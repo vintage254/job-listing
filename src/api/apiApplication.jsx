@@ -1,37 +1,119 @@
-import supabaseClient, { supabaseUrl } from "@/utils/supabase";
+import supabaseClient from '@/utils/supabase';
 
-// - Apply to job ( candidate )
-export async function applyToJob(token, _, jobData) {
-  const supabase = await supabaseClient(token);
+export const applyToJob = async (formData, token) => {
+  try {
+    const supabase = await supabaseClient(token);
+    const fileUrls = {};
 
-  const random = Math.floor(Math.random() * 90000);
-  const fileName = `resume-${random}-${jobData.candidate_id}`;
+    // Upload files
+    for (const [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        try {
+          // Simple file path
+          const filePath = `${Date.now()}_${value.name}`;
 
-  const { error: storageError } = await supabase.storage
-    .from("resumes")
-    .upload(fileName, jobData.resume);
+          console.log('File details:', {
+            name: value.name,
+            size: value.size,
+            type: value.type,
+            path: filePath
+          });
 
-  if (storageError) throw new Error("Error uploading Resume");
+          // Upload with minimal options
+          const { data, error: uploadError } = await supabase.storage
+            .from('applications')
+            .upload(filePath, value);
 
-  const resume = `${supabaseUrl}/storage/v1/object/public/resumes/${fileName}`;
+          if (uploadError) {
+            console.error('Upload error details:', {
+              error: uploadError,
+              status: uploadError.status,
+              message: uploadError.message,
+              details: uploadError.details
+            });
+            throw uploadError;
+          }
 
-  const { data, error } = await supabase
-    .from("applications")
-    .insert([
-      {
-        ...jobData,
-        resume,
-      },
-    ])
-    .select();
+          const { data: { publicUrl } } = supabase.storage
+            .from('applications')
+            .getPublicUrl(filePath);
 
-  if (error) {
-    console.error(error);
-    throw new Error("Error submitting Application");
+          fileUrls[key] = publicUrl;
+          console.log('Upload successful:', publicUrl);
+        } catch (error) {
+          console.error('Full error:', error);
+          throw error;
+        }
+      }
+    }
+
+    // Create application record
+    const { data, error } = await supabase
+      .from('applications')
+      .insert([{
+        job_id: formData.get('job_id'),
+        candidate_id: formData.get('candidate_id'),
+        candidate_name: formData.get('candidate_name'),
+        candidate_email: formData.get('candidate_email'),
+        files: fileUrls,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Database error:', error);
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error in applyToJob:', error);
+    throw error;
   }
+};
 
-  return data;
-}
+// Get notifications for a user
+export const getNotifications = async (userId, token) => {
+  try {
+    const supabase = await supabaseClient(token);
+    
+    // Remove the 'user_' prefix from Clerk ID if present
+    const cleanUserId = userId.replace('user_', '');
+    console.log('Fetching notifications for user:', cleanUserId);
+    
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', cleanUserId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    throw error;
+  }
+};
+
+// Mark notification as read
+export const markNotificationAsRead = async (notificationId, token) => {
+  try {
+    const supabase = await supabaseClient(token);
+    
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', notificationId.toString());
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    throw error;
+  }
+};
 
 // - Edit Application Status ( recruiter )
 export async function updateApplicationStatus(token, { job_id }, status) {

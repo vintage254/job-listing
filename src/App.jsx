@@ -13,6 +13,7 @@ import ProtectedRoute from './components/protected-route'
 import { ToastProvider } from "@/components/ui/toast"
 import ErrorBoundary from '@/components/ErrorBoundary'
 import EditJobPage from './pages/edit-job'
+import ApplicantsPage from './pages/applicants'
 
 
 const router = createBrowserRouter([
@@ -80,6 +81,14 @@ const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <EditJobPage />
+          </ProtectedRoute>
+        )
+      },
+      {
+        path: '/applicants',
+        element: (
+          <ProtectedRoute>
+            <ApplicantsPage />
           </ProtectedRoute>
         )
       }

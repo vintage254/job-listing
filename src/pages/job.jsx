@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import useFetch from "@/hooks/use-fetch";
 import { getSingleJob } from "@/api/apijobs";
+import { ApplyJobButton } from "@/components/ApplyJobButton";
 
 const JobPage = () => {
   const params = useParams();
@@ -116,7 +117,25 @@ const JobPage = () => {
         </div>
       )}
 
-      {/* ... rest of your component ... */}
+      {/* Add the apply button for candidates */}
+      {user?.unsafeMetadata?.role === "candidate" && !hasExpired && (
+        <div className="mt-4">
+          <ApplyJobButton 
+            job={job} 
+            onSuccess={() => {
+              // Refresh job data after successful application
+              fetchJob(params.id);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Show expired message if applicable */}
+      {hasExpired && (
+        <div className="mt-4 text-red-500 font-semibold text-center">
+          This job posting has expired
+        </div>
+      )}
     </div>
   );
 };
