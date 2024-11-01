@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useUser } from "@clerk/clerk-react";
+import { useUser, useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
 import { getJobs, toggleSaveJob } from '@/api/apijobs';
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,8 @@ const JobListingPage = () => {
     company_id: '',
     searchQuery: ''
   });
+  const { getToken } = useAuth();
+  const [externalJobsStatus, setExternalJobsStatus] = useState(null);
 
   useEffect(() => {
     loadJobs();
@@ -42,8 +44,10 @@ const JobListingPage = () => {
   const loadJobs = async () => {
     try {
       setLoading(true);
-      const jobsData = await getJobs(filters);
-      setJobs(jobsData);
+      const token = await getToken({ template: "supabase" });
+      const result = await getJobs(filters, token);
+      setJobs(result.jobs);
+      setExternalJobsStatus(result.externalJobsStatus);
     } catch (error) {
       console.error('Error loading jobs:', error);
     } finally {
@@ -71,24 +75,25 @@ const JobListingPage = () => {
   };
 
   const JobCard = ({ job }) => {
-    const isSaved = job.saved_jobs?.some(saved => saved.user_id === user.id);
+    const isExternal = job.is_external;
+    const isSaved = !isExternal && job.saved_jobs?.some(saved => saved.user_id === user.id);
 
     return (
       <Card className="p-6 hover:shadow-lg transition-shadow">
         <div className="flex justify-between items-start">
           <div className="flex gap-4">
-            {job.company_logo && (
-              <div className="w-16 h-16 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded">
-                <CompanyLogo 
-                  src={job.company_logo}
-                  alt={job.company_name}
-                  className="w-14 h-14 object-contain"
-                />
-              </div>
-            )}
+            <div className="w-16 h-16 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded">
+              <CompanyLogo 
+                src={job.company_logo || job.company?.logo_url}
+                alt={job.company_name || job.company?.name}
+                className="w-14 h-14 object-contain"
+              />
+            </div>
             <div>
               <h3 className="text-xl font-semibold">{job.title}</h3>
-              <p className="text-gray-600 dark:text-gray-400">{job.company_name}</p>
+              <p className="text-gray-600 dark:text-gray-400">
+                {job.company_name || job.company?.name}
+              </p>
               
               <div className="flex gap-4 mt-2">
                 <span className="flex items-center text-sm text-gray-500">
@@ -101,30 +106,40 @@ const JobListingPage = () => {
                 </span>
               </div>
               
-              <p className="mt-2 text-green-600 dark:text-green-400 font-medium">
-                {job.salary_range}
-              </p>
+              {job.salary_range && (
+                <p className="mt-2 text-green-600 dark:text-green-400 font-medium">
+                  {job.salary_range}
+                </p>
+              )}
             </div>
           </div>
           
           <div className="flex gap-2">
-            <SaveJobButton 
-              jobId={job.id} 
-              initialSaved={isSaved} 
-              jobData={{
-                title: job.title,
-                company_name: job.company_name,
-                company_logo: job.company_logo,
-                location: job.location,
-                description: job.description,
-                salary_range: job.salary_range,
-                job_type: job.job_type,
-                source: job.source || 'external'
-              }} 
-            />
-            <Link to={`/job/${job.id}`}>
-              <Button>View Details</Button>
-            </Link>
+            {!isExternal && (
+              <SaveJobButton 
+                jobId={job.id} 
+                initialSaved={isSaved}
+                jobData={{
+                  title: job.title,
+                  company_name: job.company_name || job.company?.name,
+                  company_logo: job.company_logo || job.company?.logo_url,
+                  location: job.location,
+                  description: job.description,
+                  salary_range: job.salary_range,
+                  job_type: job.job_type,
+                  source: job.source
+                }} 
+              />
+            )}
+            {isExternal ? (
+              <a href={job.url} target="_blank" rel="noopener noreferrer">
+                <Button>Apply on {job.source}</Button>
+              </a>
+            ) : (
+              <Link to={`/job/${job.id}`}>
+                <Button>View Details</Button>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -135,7 +150,8 @@ const JobListingPage = () => {
         </div>
 
         {job.source && (
-          <div className="mt-4 text-sm text-gray-500">
+          <div className="mt-4 text-sm text-gray-500 flex items-center gap-2">
+            {job.is_external && <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">External</span>}
             Source: {job.source}
           </div>
         )}
@@ -165,6 +181,21 @@ const JobListingPage = () => {
           <Button type="submit">Search</Button>
         </form>
       </div>
+
+      {/* External Jobs Status Message */}
+      {externalJobsStatus && externalJobsStatus !== 'success' && (
+        <div className="mb-4 p-4 rounded-lg bg-blue-50 text-blue-800">
+          {externalJobsStatus === 'subscription_required' && (
+            <p>Currently showing local jobs only. External job listings require API subscription.</p>
+          )}
+          {externalJobsStatus === 'error' && (
+            <p>Unable to fetch external jobs. Showing local jobs only.</p>
+          )}
+          {externalJobsStatus === 'disabled' && (
+            <p>External job listings are currently disabled.</p>
+          )}
+        </div>
+      )}
 
       {/* Results Section */}
       {loading ? (

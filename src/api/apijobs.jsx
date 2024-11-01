@@ -1,783 +1,594 @@
 import supabaseClient from '@/utils/supabase';
-import { createClient } from '@supabase/supabase-js';
-import axios from 'axios';
 
-// Initialize Supabase client
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+// Cache constants
+const CACHE_KEY = 'external_jobs_cache';
+const CACHE_DURATION = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
 
-// API Configuration
-const ADZUNA_CONFIG = {
-  baseURL: 'https://api.adzuna.com/v1/api/jobs/gb/search/1',
-  appId: 'b547d456',
-  apiKey: 'fad163f42e2ea4acc6aa6d63bd2792a2'
-};
-
-const FINDWORK_CONFIG = {
-  baseURL: '/findwork',
-  apiKey: '11f6c5539b1d332119794b0edc21108c38101c60'
-};
-
-const REED_CONFIG = {
-  baseURL: '/reed',
-  apiKey: '3418b912-4e3d-4eae-8300-da8575316ff6'
-};
-
-const ARBEITNOW_CONFIG = {
-  baseURL: 'https://www.arbeitnow.com/api/job-board-api'
-};
-
-// Cache configuration - 72 hours
-const CACHE_DURATION = 72 * 60 * 60 * 1000;
-
-// Simple rate limiting using localStorage
-const RATE_LIMIT = {
-  maxRequests: 100,
-  timeWindow: 15 * 60 * 1000, // 15 minutes
-  key: 'api_request_count'
-};
-
-const checkRateLimit = () => {
-  const now = Date.now();
-  const requestHistory = JSON.parse(localStorage.getItem(RATE_LIMIT.key) || '{"count": 0, "timestamp": 0}');
-  
-  if (now - requestHistory.timestamp > RATE_LIMIT.timeWindow) {
-    // Reset if time window has passed
-    localStorage.setItem(RATE_LIMIT.key, JSON.stringify({ count: 1, timestamp: now }));
-    return true;
+// RapidAPI Jobs API Integration
+class UnifiedJobsAPI {
+  constructor() {
+    this.apiKey = import.meta.env.VITE_RAPIDAPI_KEY;
+    this.baseUrl = 'https://jsearch.p.rapidapi.com';
+    this.headers = {
+      'X-RapidAPI-Key': this.apiKey,
+      'X-RapidAPI-Host': 'jsearch.p.rapidapi.com'
+    };
+    this.lastRequestTime = 0;
+    this.requestDelay = 3600000 / 1000; // 3.6 seconds between requests
+    this.dailyRequestCount = 0;
+    this.dailyRequestReset = new Date().setHours(0,0,0,0);
   }
-  
-  if (requestHistory.count >= RATE_LIMIT.maxRequests) {
-    return false;
-  }
-  
-  // Increment count
-  localStorage.setItem(RATE_LIMIT.key, JSON.stringify({
-    count: requestHistory.count + 1,
-    timestamp: requestHistory.timestamp
-  }));
-  return true;
-};
 
-// Add language detection helper
-const isEnglishText = (text) => {
-  // Simple check for common English characters and words
-  const englishPattern = /^[a-zA-Z0-9\s.,!?'"-]+$/;
-  const commonEnglishWords = ['the', 'and', 'or', 'in', 'at', 'job', 'work', 'experience'];
-  
-  // Check if text contains common English words and matches English pattern
-  return englishPattern.test(text) || 
-         commonEnglishWords.some(word => text.toLowerCase().includes(word));
-};
-
-// Add HTML to text converter helper
-const htmlToText = (html) => {
-  if (!html) return '';
-  
-  // Create a temporary element
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
-  
-  // Replace common HTML entities
-  let text = temp.textContent || temp.innerText;
-  text = text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\n\s*\n/g, '\n') // Remove extra newlines
-    .replace(/\s+/g, ' ') // Remove extra spaces
-    .trim();
-
-  return text;
-};
-
-// Update normalizeId function to handle special characters better
-const normalizeId = (source, id) => {
-  // Remove special characters and spaces, keeping only alphanumeric characters and hyphens
-  const cleanId = (id || '').toString()
-    .replace(/[^a-zA-Z0-9-]/g, '_')
-    .toLowerCase();
-  
-  // Add source prefix if not already present
-  const prefix = source.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-  
-  // Ensure the ID is URL-safe
-  return encodeURIComponent(`${prefix}_${cleanId}`);
-};
-
-// Update normalizeJobData function
-const normalizeJobData = (job, source) => {
-  // Skip jobs without English titles or descriptions
-  if (!isEnglishText(job.title) || !isEnglishText(job.description)) {
+  // Cache management methods
+  getCachedJobs(query, location) {
+    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    const cacheKey = `${query}_${location}`;
+    
+    if (cache[cacheKey] && Date.now() < cache[cacheKey].expiry) {
+      return cache[cacheKey].data;
+    }
     return null;
   }
 
-  // Clean up description
-  let cleanDescription = '';
-  try {
-    if (typeof job.description === 'string') {
-      cleanDescription = htmlToText(job.description);
-    } else if (typeof job.description === 'object') {
-      cleanDescription = JSON.stringify(job.description);
-    }
-  } catch (error) {
-    console.error('Error processing description:', error);
-    cleanDescription = 'Description not available';
-  }
-
-  // Generate normalized ID
-  const normalizedId = normalizeId(source, job.id || Math.random().toString(36).substr(2, 9));
-
-  return {
-    id: normalizedId,
-    title: job.title,
-    company_name: job.company?.name || job.company_name || 'Unknown Company',
-    company_logo: job.company?.logo_url || job.company?.logo || job.company_logo,
-    location: job.location?.display_name || job.location || 'Location not specified',
-    salary_range: job.salary_min && job.salary_max ? 
-      `KES ${job.salary_min.toLocaleString()} - ${job.salary_max.toLocaleString()} per month` : 
-      'Salary not specified',
-    job_type: job.contract_type || job.job_type || 'Not specified',
-    description: cleanDescription,
-    requirements: Array.isArray(job.requirements) ? job.requirements : [],
-    responsibilities: Array.isArray(job.responsibilities) ? job.responsibilities : [],
-    source: source,
-    external_url: job.redirect_url || job.url || '',
-    created_at: new Date().toISOString()
-  };
-};
-
-// Function to fetch jobs from Adzuna
-const fetchAdzunaJobs = async (query = '') => {
-  try {
-    const response = await axios.get(`${ADZUNA_CONFIG.baseURL}`, {
-      params: {
-        app_id: ADZUNA_CONFIG.appId,
-        app_key: ADZUNA_CONFIG.apiKey,
-        what: query,
-        where: 'kenya',
-        'content-type': 'application/json'
-      }
-    });
-    return response.data.results.map(job => normalizeJobData(job, 'adzuna'));
-  } catch (error) {
-    console.error('Adzuna API Error:', error);
-    return [];
-  }
-};
-
-// Add API_CONFIG at the top with other configurations
-const API_CONFIG = {
-  PROXY_URL: 'http://localhost:3001/api',
-  FINDWORK_CONFIG: {
-    baseURL: '/findwork',
-  },
-  REED_CONFIG: {
-    baseURL: '/reed',
-  }
-};
-
-// Update FindWork API call
-const fetchFindWorkJobs = async (query = '') => {
-  try {
-    const response = await axios.get(`${API_CONFIG.PROXY_URL}${API_CONFIG.FINDWORK_CONFIG.baseURL}`, {
-      params: {
-        search: query,
-        location: 'kenya'
-      }
-    });
-    return response.data.results.map(job => normalizeJobData(job, 'findwork'));
-  } catch (error) {
-    console.error('FindWork API Error:', error);
-    return [];
-  }
-};
-
-// Update Reed API call
-const fetchReedJobs = async (query = '') => {
-  try {
-    const response = await axios.get(`${API_CONFIG.PROXY_URL}${API_CONFIG.REED_CONFIG.baseURL}`, {
-      params: {
-        keywords: query,
-        locationName: 'kenya'
-      }
-    });
-    return response.data.results.map(job => normalizeJobData(job, 'reed'));
-  } catch (error) {
-    console.error('Reed API Error:', error);
-    return [];
-  }
-};
-
-// Update fetchArbeitnowJobs function to remove Africa location filter
-const fetchArbeitnowJobs = async () => {
-  try {
-    const response = await axios.get(ARBEITNOW_CONFIG.baseURL);
+  setCachedJobs(query, location, data) {
+    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    const cacheKey = `${query}_${location}`;
     
-    // Map and normalize all jobs without location filtering
-    return response.data.data
-      .map(job => normalizeJobData(job, 'arbeitnow'))
-      .filter(job => job !== null); // Remove any null results from normalization
-
-  } catch (error) {
-    console.error('Arbeitnow API Error:', error);
-    return [];
-  }
-};
-
-// Enhanced caching function
-const getCachedData = async (key) => {
-  const { data, error } = await supabase
-    .from('cache')
-    .select('*')
-    .eq('key', key)
-    .single();
-
-  if (error) return null;
-
-  if (data && Date.now() - new Date(data.created_at).getTime() < CACHE_DURATION) {
-    return JSON.parse(data.value);
+    cache[cacheKey] = {
+      data,
+      expiry: Date.now() + CACHE_DURATION
+    };
+    
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
   }
 
-  return null;
-};
-
-const setCachedData = async (key, value) => {
-  const { error } = await supabase
-    .from('cache')
-    .upsert({
-      key,
-      value: JSON.stringify(value),
-      created_at: new Date().toISOString()
-    }, {
-      onConflict: 'key'
+  cleanupCache() {
+    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+    const now = Date.now();
+    
+    // Remove expired entries
+    Object.keys(cache).forEach(key => {
+      if (now >= cache[key].expiry) {
+        delete cache[key];
+      }
     });
+    
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  }
 
-  if (error) console.error('Caching error:', error);
-};
+  // Enhanced rate limiting
+  async rateLimitRequest() {
+    const now = Date.now();
 
-// Modify fetchAllJobs to use enhanced caching
-export const fetchAllJobs = async (query = '') => {
-  try {
-    const cacheKey = `jobs_${query}`;
-    const cachedData = await getCachedData(cacheKey);
-
-    if (cachedData) {
-      console.log('Returning cached jobs data');
-      return cachedData;
+    // Check daily limit
+    if (now > this.dailyRequestReset) {
+      // Reset daily counter at midnight
+      this.dailyRequestCount = 0;
+      this.dailyRequestReset = new Date().setHours(24,0,0,0);
     }
 
-    // Fetch new jobs from all sources
-    const [adzunaJobs, findworkJobs, reedJobs, arbeitnowJobs] = await Promise.all([
-      fetchAdzunaJobs(query),
-      fetchFindWorkJobs(query),
-      fetchReedJobs(query),
-      fetchArbeitnowJobs()
-    ]);
+    if (this.dailyRequestCount >= 30) {
+      console.log('Daily request limit reached');
+      throw new Error('Daily API limit reached');
+    }
 
-    // Combine all jobs
-    const allJobs = [...adzunaJobs, ...findworkJobs, ...reedJobs, ...arbeitnowJobs];
+    // Check hourly rate limit
+    const timeSinceLastRequest = now - this.lastRequestTime;
+    if (timeSinceLastRequest < this.requestDelay) {
+      await new Promise(resolve => 
+        setTimeout(resolve, this.requestDelay - timeSinceLastRequest)
+      );
+    }
 
-    // Store in cache
-    await setCachedData(cacheKey, allJobs);
+    this.lastRequestTime = now;
+    this.dailyRequestCount++;
 
-    // Store in Supabase jobs table
-    if (allJobs.length > 0) {
-      const { error } = await supabase
-        .from('jobs')
-        .upsert(allJobs, { onConflict: 'id' });
+    // Log remaining requests
+    console.log(`API Requests - Daily: ${30 - this.dailyRequestCount} remaining`);
+  }
 
-      if (error) {
-        console.error('Error storing jobs:', error);
+  async searchJobs(query, location, options = {}) {
+    try {
+      const cacheKey = `jsearch_${query}_${location}`;
+      const cachedData = this.getCachedJobs(cacheKey);
+      if (cachedData) {
+        console.log('Returning cached jobs');
+        return cachedData;
       }
 
-      await notifyNewJobs(allJobs.length);
+      await this.rateLimitRequest();
+
+      const searchParams = new URLSearchParams({
+        query: `${query} in ${location}`,
+        page: '1',
+        num_pages: '1',
+        date_posted: options.datePosted || 'all'
+      });
+
+      const response = await fetch(`${this.baseUrl}/search?${searchParams}`, {
+        method: 'GET',
+        headers: this.headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`JSearch API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('JSearch Response:', data);
+
+      const formattedJobs = data.data.map(job => ({
+        id: `jsearch_${job.job_id}`,
+        title: job.job_title,
+        description: job.job_description,
+        location: job.job_city || job.job_country,
+        company_name: job.employer_name,
+        company_logo: job.employer_logo,
+        salary_range: this.formatSalary(job.job_min_salary, job.job_max_salary, job.job_salary_currency),
+        job_type: job.job_employment_type,
+        source: 'JSearch',
+        url: job.job_apply_link,
+        created_at: job.job_posted_at_datetime || new Date().toISOString(),
+        is_external: true,
+        requirements: job.job_required_skills?.join(', '),
+        benefits: job.job_highlights?.Benefits?.join(', '),
+        experience_level: job.job_experience_level
+      }));
+
+      this.setCachedJobs(cacheKey, formattedJobs);
+      return formattedJobs;
+    } catch (error) {
+      console.error('Error searching jobs:', error);
+      return [];
+    }
+  }
+
+  async getJobDetails(jobId) {
+    try {
+      await this.rateLimitRequest();
+
+      const searchParams = new URLSearchParams({
+        job_id: jobId,
+        extended_publisher_details: 'false'
+      });
+
+      const response = await fetch(`${this.baseUrl}/job-details?${searchParams}`, {
+        method: 'GET',
+        headers: this.headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`JSearch API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.data[0];
+    } catch (error) {
+      console.error('Error getting job details:', error);
+      return null;
+    }
+  }
+
+  async getEstimatedSalary(jobTitle, location) {
+    try {
+      await this.rateLimitRequest();
+
+      const searchParams = new URLSearchParams({
+        job_title: jobTitle,
+        location: location,
+        radius: '100'
+      });
+
+      const response = await fetch(`${this.baseUrl}/estimated-salary?${searchParams}`, {
+        method: 'GET',
+        headers: this.headers
+      });
+
+      if (!response.ok) {
+        throw new Error(`JSearch API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.data;
+    } catch (error) {
+      console.error('Error getting salary estimate:', error);
+      return null;
+    }
+  }
+
+  formatSalary(min, max, currency = 'USD') {
+    if (!min && !max) return 'Salary not specified';
+    if (min && max) {
+      return `${currency} ${min.toLocaleString()} - ${max.toLocaleString()} per year`;
+    }
+    if (min) return `${currency} ${min.toLocaleString()}+ per year`;
+    return `Up to ${currency} ${max.toLocaleString()} per year`;
+  }
+
+  // ... [Keep all the UnifiedJobsAPI methods you provided]
+
+  async fetchJobList(query, location, options = {}) {
+    try {
+      console.log('Fetching from Jobs API with:', { query, location, options });
+      
+      const response = await fetch(`${this.baseUrl}/list`, {
+        method: 'GET',
+        headers: {
+          'X-RapidAPI-Key': this.apiKey,
+          'X-RapidAPI-Host': 'jsearch.p.rapidapi.com',
+          'Content-Type': 'application/json'
+        },
+        params: {
+          query: query || '',
+          location: location || 'US',
+          distance: '100',
+          language: 'en_GB',
+          remoteOnly: options.remoteOnly || false,
+          datePosted: 'month',
+          employmentTypes: options.employmentTypes || 'fulltime;parttime',
+          index: '0'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Jobs API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
+        return []; // Return empty array instead of throwing
+      }
+
+      const data = await response.json();
+      console.log('Jobs API Response:', data);
+      
+      return data.jobs?.map(job => ({
+        id: `jobs_${job.id || Math.random().toString(36).substr(2, 9)}`,
+        title: job.title || 'Untitled Position',
+        description: job.description || 'No description available',
+        location: job.location || 'Location not specified',
+        company_name: job.company || 'Unknown Company',
+        company_logo: job.company_logo || '/default-company-logo.svg',
+        salary_range: job.salary || 'Not specified',
+        job_type: job.type || 'Full-time',
+        source: 'Jobs API',
+        url: job.url || '#',
+        created_at: job.posted_at || new Date().toISOString(),
+        is_external: true
+      })) || [];
+    } catch (error) {
+      console.error('Error in fetchJobList:', error);
+      return []; // Return empty array on error
+    }
+  }
+}
+
+const jobsApi = new UnifiedJobsAPI();
+
+// Supabase Job Functions
+export const addNewJob = async (jobData, userId, token) => {
+  try {
+    console.log('Received job data:', jobData);
+
+    if (!jobData || !jobData.title) {
+      throw new Error('Job title is required');
     }
 
-    return allJobs;
+    const supabase = await supabaseClient(token);
+    
+    // Generate a unique job ID
+    const timestamp = Date.now();
+    const randomString = Math.random().toString(36).substring(2, 8);
+    const jobId = `job_${timestamp}_${randomString}`;
+
+    const { data, error } = await supabase
+      .from('jobs')
+      .insert([{
+        id: jobId,
+        title: jobData.title,
+        description: jobData.description,
+        location: jobData.location,
+        company_id: jobData.company_id,
+        requirements: jobData.requirements,
+        application_deadline: jobData.application_deadline,
+        application_requirements: jobData.application_requirements,
+        recruiter_id: userId,
+        is_open: true,
+        created_at: new Date().toISOString()
+      }])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Database error:', error);
+      throw error;
+    }
+
+    return data;
   } catch (error) {
-    console.error('Error fetching jobs:', error);
+    console.error('Error creating job:', error);
     throw error;
   }
 };
 
-// Modify searchJobs to use caching
-export const searchJobs = async (query) => {
+export const getSingleJob = async (jobId) => {
   try {
-    const cacheKey = `search_${query}`;
-    const cachedResults = await getCachedData(cacheKey);
+    const supabase = await supabaseClient();
+    const { data, error } = await supabase
+      .from('jobs')
+      .select(`
+        *,
+        company:company_id (*),
+        applications (*)
+      `)
+      .eq('id', jobId)
+      .single();
 
-    if (cachedResults) {
-      console.log('Returning cached search results');
-      return cachedResults;
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error fetching job:', error);
+    throw error;
+  }
+};
+
+export const getJobs = async (filters = {}, token) => {
+  try {
+    console.log('Getting jobs with filters:', filters);
+    
+    // Get local jobs
+    const supabase = await supabaseClient(token);
+    let query = supabase
+      .from('jobs')
+      .select(`
+        *,
+        company:company_id (*),
+        applications (*)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (filters.location) {
+      query = query.ilike('location', `%${filters.location}%`);
+    }
+    if (filters.searchQuery) {
+      query = query.ilike('title', `%${filters.searchQuery}%`);
     }
 
-    const { data: jobs, error } = await supabase
+    const { data: localJobs, error } = await query;
+    if (error) throw error;
+
+    console.log('Local jobs found:', localJobs.length);
+
+    // Check if external jobs are enabled in environment
+    const externalJobsEnabled = import.meta.env.VITE_ENABLE_EXTERNAL_JOBS === 'true';
+    
+    if (!externalJobsEnabled) {
+      console.log('External jobs are disabled');
+      return {
+        jobs: localJobs,
+        externalJobsStatus: 'disabled'
+      };
+    }
+
+    // Get external jobs using searchJobs instead of comprehensiveJobSearch
+    try {
+      const externalJobs = await jobsApi.searchJobs(
+        filters.searchQuery || '',
+        filters.location || 'US',
+        {
+          datePosted: 'all',
+          remoteOnly: filters.remoteOnly || false
+        }
+      );
+
+      if (externalJobs?.length > 0) {
+        console.log('External jobs found:', externalJobs.length);
+        return {
+          jobs: [...localJobs, ...externalJobs],
+          externalJobsStatus: 'success'
+        };
+      }
+    } catch (error) {
+      console.error('Error fetching external jobs:', error);
+      // Return specific status for subscription error
+      if (error.message?.includes('not subscribed')) {
+        return {
+          jobs: localJobs,
+          externalJobsStatus: 'subscription_required'
+        };
+      }
+      return {
+        jobs: localJobs,
+        externalJobsStatus: 'error'
+      };
+    }
+
+    return {
+      jobs: localJobs,
+      externalJobsStatus: 'no_results'
+    };
+  } catch (error) {
+    console.error('Error in getJobs:', error);
+    throw error;
+  }
+};
+
+export const getMyJobs = async (userId) => {
+  try {
+    const supabase = await supabaseClient();
+    const { data, error } = await supabase
       .from('jobs')
-      .select('*')
-      .or(`title.ilike.%${query}%,description.ilike.%${query}%`)
+      .select(`
+        *,
+        company:company_id (*),
+        applications (*)
+      `)
+      .eq('recruiter_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-
-    let results = jobs;
-    if (jobs.length === 0) {
-      results = await fetchAllJobs(query);
-    }
-
-    await setCachedData(cacheKey, results);
-    return results;
+    return data;
   } catch (error) {
-    console.error('Error searching jobs:', error);
+    console.error('Error fetching recruiter jobs:', error);
     throw error;
   }
 };
 
-// Webhook notification function
-const notifyNewJobs = async (jobCount) => {
+export const updateHiringStatus = async (jobId, isOpen) => {
   try {
-    // Implement your webhook notification logic here
-    // Example: Send notification to a Slack channel or email
-    console.log(`${jobCount} new jobs have been added to the database`);
-  } catch (error) {
-    console.error('Error sending notification:', error);
-  }
-};
-
-// Export other useful functions
-export const getJobById = async (id) => {
-  try {
-    const { data: job, error } = await supabase
+    const supabase = await supabaseClient();
+    const { data, error } = await supabase
       .from('jobs')
-      .select('*')
-      .eq('id', id)
+      .update({ is_open: isOpen })
+      .eq('id', jobId)
+      .select()
       .single();
 
     if (error) throw error;
-    return job;
+    return data;
   } catch (error) {
-    console.error('Error fetching job:', error);
+    console.error('Error updating hiring status:', error);
     throw error;
   }
 };
 
-// Enhanced job fetching function
-export const getJobs = async ({ location, company_id, searchQuery }) => {
+export const toggleSaveJob = async (jobId, userId, token) => {
   try {
-    let query = supabase
-      .from("jobs")
-      .select(`
-        *,
-        saved_jobs!left (
-          id,
-          user_id
-        ),
-        companies!jobs_company_id_fkey (
-          id,
-          name,
-          logo_url
-        )
-      `);
+    const supabase = await supabaseClient(token);
 
-    if (location) {
-      query = query.ilike("location", `%${location}%`);
+    // First, check if the job is already saved
+    const { data: existingSave, error: checkError } = await supabase
+      .from('saved_jobs')
+      .select()
+      .eq('job_id', jobId)
+      .eq('user_id', userId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 means no rows returned
+      throw checkError;
     }
 
-    if (company_id) {
-      query = query.eq("company_id", company_id);
+    if (existingSave) {
+      // If job is already saved, remove it
+      const { error: deleteError } = await supabase
+        .from('saved_jobs')
+        .delete()
+        .eq('job_id', jobId)
+        .eq('user_id', userId);
+
+      if (deleteError) throw deleteError;
+      return { saved: false };
+    } else {
+      // If job is not saved, save it
+      const { error: insertError } = await supabase
+        .from('saved_jobs')
+        .insert([{
+          job_id: jobId,
+          user_id: userId,
+          saved_at: new Date().toISOString()
+        }]);
+
+      if (insertError) throw insertError;
+      return { saved: true };
     }
+  } catch (error) {
+    console.error('Error toggling save job:', error);
+    throw error;
+  }
+};
 
-    if (searchQuery) {
-      query = query.or(`title.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`);
-    }
+// Add function to check if a job is saved
+export const isJobSaved = async (jobId, userId) => {
+  try {
+    const supabase = await supabaseClient();
+    const { data, error } = await supabase
+      .from('saved_jobs')
+      .select()
+      .eq('job_id', jobId)
+      .eq('user_id', userId)
+      .single();
 
-    // Add order by created_at
-    query = query.order('created_at', { ascending: false });
-
-    const { data: localJobs, error } = await query;
-
-    if (error) {
-      console.error("Database Error:", error);
+    if (error && error.code !== 'PGRST116') {
       throw error;
     }
 
-    // Fetch external jobs if needed
-    const externalJobs = await fetchExternalJobs(searchQuery);
-
-    // Combine local and external jobs
-    const allJobs = [...(localJobs || []), ...externalJobs];
-
-    return allJobs;
-  } catch (error) {
-    console.error("Error fetching jobs:", error);
-    throw error;
-  }
-};
-
-// Add this helper function to check if a job exists
-export const checkJobExists = async (jobId) => {
-  try {
-    const { data, error } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("id", jobId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') throw error;
     return !!data;
   } catch (error) {
-    console.error("Error checking job:", error);
-    return false;
+    console.error('Error checking saved job:', error);
+    throw error;
   }
 };
 
-// Get saved jobs
+// Add function to get user's saved jobs
 export const getSavedJobs = async (userId) => {
   try {
+    const supabase = await supabaseClient();
     const { data, error } = await supabase
-      .from("saved_jobs")
+      .from('saved_jobs')
       .select(`
         *,
-        job:jobs!inner (
+        job:job_id (
           *,
-          company:companies (
-            name,
-            logo_url
-          )
+          company:company_id (*)
         )
       `)
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .order('saved_at', { ascending: false });
 
     if (error) throw error;
     return data;
   } catch (error) {
-    console.error("Error fetching saved jobs:", error);
+    console.error('Error fetching saved jobs:', error);
     throw error;
   }
 };
 
-// Get single job
-export const getSingleJob = async (jobId) => {
+export const deleteJob = async (jobId, token) => {
   try {
-    console.log('Raw jobId:', jobId);
+    const supabase = await supabaseClient(token);
 
-    if (!jobId) {
-      throw new Error('Job ID is required');
-    }
+    // First delete all applications for this job
+    const { error: applicationsError } = await supabase
+      .from('applications')
+      .delete()
+      .eq('job_id', jobId);
 
-    // Ensure we're working with a string
-    const actualId = typeof jobId === 'string' ? jobId : String(jobId);
-    console.log('Using job ID:', actualId);
+    if (applicationsError) throw applicationsError;
 
-    const { data, error } = await supabase
+    // Then delete all saved instances of this job
+    const { error: savedJobsError } = await supabase
+      .from('saved_jobs')
+      .delete()
+      .eq('job_id', jobId);
+
+    if (savedJobsError) throw savedJobsError;
+
+    // Finally delete the job itself
+    const { error: jobError } = await supabase
       .from('jobs')
-      .select(`
-        *,
-        companies:company_id (
-          id,
-          name,
-          logo_url
-        ),
-        saved_jobs (
-          id,
-          user_id
-        ),
-        applications (
-          id,
-          candidate_id,
-          status
-        )
-      `)
-      .eq('id', actualId)
-      .maybeSingle();
+      .delete()
+      .eq('id', jobId);
 
-    if (error) {
-      console.error('Database Error:', error);
-      throw error;
-    }
-
-    if (!data) {
-      throw new Error(`Job not found with ID: ${actualId}`);
-    }
-
-    console.log('Found job:', data);
-    return data;
-  } catch (error) {
-    console.error('Error fetching job:', error);
-    throw error;
-  }
-};
-
-// Save/unsave job
-export const toggleSaveJob = async (userId, jobId, alreadySaved, jobData) => {
-  try {
-    if (!userId) {
-      throw new Error('User ID is required');
-    }
-
-    if (!jobData) {
-      throw new Error('Job data is required');
-    }
-
-    // Generate a consistent ID for external jobs
-    const normalizedJobId = `${jobData.source || 'external'}_${jobId}`.toLowerCase();
-
-    if (alreadySaved) {
-      const { error } = await supabase
-        .from("saved_jobs")
-        .delete()
-        .eq('user_id', userId.toString())
-        .eq('job_id', normalizedJobId);
-
-      if (error) throw error;
-      return null;
-    } else {
-      // First, ensure the job exists in the jobs table
-      const { data: existingJob } = await supabase
-        .from("jobs")
-        .select("id")
-        .eq('id', normalizedJobId)
-        .single();
-
-      // If job doesn't exist, create it first
-      if (!existingJob) {
-        // Format the job data for insertion
-        const jobToInsert = {
-          id: normalizedJobId,
-          title: jobData.title || 'No Title',
-          description: jobData.description || '',
-          company_name: jobData.company_name || 'Unknown Company',
-          company_logo: jobData.company_logo || null,
-          location: jobData.location || 'Location not specified',
-          salary_range: jobData.salary_range || 'Not specified',
-          job_type: jobData.job_type || 'Not specified',
-          requirements: jobData.requirements || '',
-          responsibilities: jobData.responsibilities || [],
-          source: jobData.source || 'external',
-          external_url: jobData.external_url || '',
-          created_at: new Date().toISOString(),
-          is_open: true
-        };
-
-        const { error: insertError } = await supabase
-          .from("jobs")
-          .insert([jobToInsert]);
-
-        if (insertError) {
-          console.error("Error inserting job:", insertError);
-          throw insertError;
-        }
-      }
-
-      // Now save the job
-      const { data, error } = await supabase
-        .from("saved_jobs")
-        .insert([{ 
-          user_id: userId.toString(), 
-          job_id: normalizedJobId,
-          created_at: new Date().toISOString()
-        }])
-        .select();
-
-      if (error) throw error;
-      return data;
-    }
-  } catch (error) {
-    console.error("Error toggling job save:", error);
-    throw new Error(error.message || 'Failed to save/unsave job');
-  }
-};
-
-// Update hiring status
-export const updateHiringStatus = async (jobId, isOpen, recruiterId) => {
-  try {
-    const { data, error } = await supabase
-      .from("jobs")
-      .update({ isOpen })
-      .eq('id', jobId)
-      .eq('recruiter_id', recruiterId)
-      .select();
-
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error("Error updating hiring status:", error);
-    throw error;
-  }
-};
-
-// Get recruiter's jobs
-export const getMyJobs = async (recruiterId) => {
-  try {
-    const { data, error } = await supabase
-      .from("jobs")
-      .select(`
-        *,
-        companies (name, logo_url)
-      `)
-      .eq('recruiter_id', recruiterId);
-
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error("Error fetching recruiter jobs:", error);
-    throw error;
-  }
-};
-
-// Delete job and all related data
-export const deleteJob = async (jobId, recruiterId) => {
-  try {
-    // Start a transaction to ensure all deletions succeed or none do
-    const { error: transactionError } = await supabase.rpc('delete_job_cascade', {
-      job_id_param: jobId,
-      recruiter_id_param: recruiterId
-    });
-
-    if (transactionError) throw transactionError;
+    if (jobError) throw jobError;
 
     return { success: true };
   } catch (error) {
-    console.error("Error deleting job:", error);
+    console.error('Error deleting job:', error);
     throw error;
   }
 };
 
-// Add new job
-export const addNewJob = async (_, jobData) => {
+export const editJob = async (jobId, jobData, token) => {
   try {
-    // Generate a unique ID for the job
-    const jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const supabase = await supabaseClient(token);
 
-    // Format the data before inserting
-    const formattedData = {
-      id: jobId,
-      title: jobData.title,
-      description: jobData.description,
-      location: jobData.location,
-      company_id: jobData.company_id,
-      requirements: jobData.requirements,
-      application_deadline: jobData.application_deadline,
-      application_requirements: jobData.application_requirements || [{ 
-        type: 'Resume', 
-        allowMultiple: false, 
-        isCustom: false 
-      }],
-      recruiter_id: jobData.recruiter_id,
-      is_open: true,
-      created_at: new Date().toISOString(),
-      source: 'internal'
-    };
-
-    console.log('Creating new job with data:', formattedData);
-
-    const { data, error } = await supabase
-      .from("jobs")
-      .insert([formattedData])
-      .select();
-
-    if (error) {
-      console.error("Database Error:", error);
-      throw error;
+    if (!jobData || !jobData.title) {
+      throw new Error('Job title is required');
     }
 
-    return data;
-  } catch (error) {
-    console.error("Error creating job:", error);
-    throw error;
-  }
-};
-
-// Update fetchExternalJobs function
-const fetchExternalJobs = async (query = '') => {
-  if (!checkRateLimit()) {
-    console.warn('Rate limit exceeded for external API calls');
-    return [];
-  }
-
-  const [adzunaJobs, findworkJobs, reedJobs, arbeitnowJobs] = await Promise.all([
-    fetchAdzunaJobs(query),
-    fetchFindWorkJobs(query),
-    fetchReedJobs(query),
-    fetchArbeitnowJobs()
-  ]);
-
-  // Filter out null jobs (non-English or invalid)
-  const validJobs = [...adzunaJobs, ...findworkJobs, ...reedJobs, ...arbeitnowJobs]
-    .filter(job => job !== null);
-
-  return validJobs;
-};
-
-
-
-// Add cache table creation SQL
-/*
-CREATE TABLE IF NOT EXISTS cache (
-    key TEXT PRIMARY KEY,
-    value JSONB NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_cache_created_at ON cache(created_at);
-*/
-
-// Add cache cleanup function
-export const cleanupCache = async () => {
-  try {
-    const { error } = await supabase
-      .from('cache')
-      .delete()
-      .lt('created_at', new Date(Date.now() - CACHE_DURATION).toISOString());
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error cleaning cache:', error);
-  }
-};
-
-// Schedule cache cleanup
-setInterval(cleanupCache, 24 * 60 * 60 * 1000); // Run once per day
-
-// Add this function to clean up expired jobs
-export const cleanupExpiredJobs = async () => {
-  try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('jobs')
-      .delete()
-      .lt('application_deadline', new Date().toISOString());
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error cleaning up expired jobs:', error);
-  }
-};
-
-// Run cleanup every day
-setInterval(cleanupExpiredJobs, 24 * 60 * 60 * 1000);
-
-// Add this function to apijobs.jsx
-export const editJob = async (jobId, recruiterId, jobData) => {
-  try {
-    // Verify the job belongs to the recruiter
-    const { data: existingJob } = await supabase
-      .from("jobs")
-      .select("*")
-      .eq('id', jobId)
-      .eq('recruiter_id', recruiterId)
-      .single();
-
-    if (!existingJob) {
-      throw new Error('Job not found or unauthorized');
-    }
-
-    // Update the job
-    const { data, error } = await supabase
-      .from("jobs")
       .update({
         title: jobData.title,
         description: jobData.description,
@@ -789,13 +600,21 @@ export const editJob = async (jobId, recruiterId, jobData) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', jobId)
-      .eq('recruiter_id', recruiterId)
-      .select();
+      .select(`
+        *,
+        company:company_id (*),
+        applications (*)
+      `)
+      .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Database error:', error);
+      throw error;
+    }
+
     return data;
   } catch (error) {
-    console.error("Error editing job:", error);
+    console.error('Error updating job:', error);
     throw error;
   }
 };
