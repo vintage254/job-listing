@@ -17,43 +17,72 @@ class UnifiedJobsAPI {
     this.requestDelay = 3600000 / 1000; // 3.6 seconds between requests
     this.dailyRequestCount = 0;
     this.dailyRequestReset = new Date().setHours(0,0,0,0);
+    this.defaultLocation = 'Kenya'; // Set default location to Kenya
+    
+    // Clean up expired cache on initialization
+    this.cleanupCache();
   }
 
   // Cache management methods
-  getCachedJobs(query, location) {
-    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    const cacheKey = `${query}_${location}`;
-    
-    if (cache[cacheKey] && Date.now() < cache[cacheKey].expiry) {
-      return cache[cacheKey].data;
+  getCachedJobs(key) {
+    try {
+      const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+      const cacheItem = cache[key];
+      
+      if (cacheItem && Date.now() < cacheItem.expiry) {
+        console.log('Cache hit for:', key);
+        return cacheItem.data;
+      }
+      
+      // Remove expired item if found
+      if (cacheItem) {
+        delete cache[key];
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+        console.log('Removed expired cache for:', key);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Cache read error:', error);
+      return null;
     }
-    return null;
   }
 
-  setCachedJobs(query, location, data) {
-    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    const cacheKey = `${query}_${location}`;
-    
-    cache[cacheKey] = {
-      data,
-      expiry: Date.now() + CACHE_DURATION
-    };
-    
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  setCachedJobs(key, data) {
+    try {
+      const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+      cache[key] = {
+        data,
+        expiry: Date.now() + CACHE_DURATION,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+      console.log('Cached data for:', key);
+    } catch (error) {
+      console.error('Cache write error:', error);
+    }
   }
 
   cleanupCache() {
-    const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
-    const now = Date.now();
-    
-    // Remove expired entries
-    Object.keys(cache).forEach(key => {
-      if (now >= cache[key].expiry) {
-        delete cache[key];
+    try {
+      const cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}');
+      const now = Date.now();
+      let cleaned = false;
+      
+      Object.keys(cache).forEach(key => {
+        if (now >= cache[key].expiry) {
+          delete cache[key];
+          cleaned = true;
+          console.log('Cleaned up expired cache for:', key);
+        }
+      });
+      
+      if (cleaned) {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
       }
-    });
-    
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+    } catch (error) {
+      console.error('Cache cleanup error:', error);
+    }
   }
 
   // Enhanced rate limiting
@@ -87,19 +116,22 @@ class UnifiedJobsAPI {
     console.log(`API Requests - Daily: ${30 - this.dailyRequestCount} remaining`);
   }
 
-  async searchJobs(query, location, options = {}) {
+  async searchJobs(query, location = 'Kenya', options = {}) {
     try {
-      const cacheKey = `jsearch_${query}_${location}`;
+      // Always use Kenya as location if not specified
+      const searchLocation = location || this.defaultLocation;
+      const cacheKey = `jsearch_${query}_${searchLocation}_${JSON.stringify(options)}`;
+      
+      // Check cache first
       const cachedData = this.getCachedJobs(cacheKey);
       if (cachedData) {
-        console.log('Returning cached jobs');
         return cachedData;
       }
 
       await this.rateLimitRequest();
 
       const searchParams = new URLSearchParams({
-        query: `${query} in ${location}`,
+        query: `${query} in ${searchLocation}`,
         page: '1',
         num_pages: '1',
         date_posted: options.datePosted || 'all'
@@ -115,27 +147,37 @@ class UnifiedJobsAPI {
       }
 
       const data = await response.json();
-      console.log('JSearch Response:', data);
+      
+      // Filter for Kenyan jobs only
+      const formattedJobs = data.data
+        .filter(job => 
+          job.job_country?.toLowerCase() === 'kenya' ||
+          job.job_city?.toLowerCase().includes('nairobi') ||
+          job.job_city?.toLowerCase().includes('mombasa') ||
+          job.job_city?.toLowerCase().includes('kisumu')
+        )
+        .map(job => ({
+          id: `jsearch_${job.job_id}`,
+          title: job.job_title,
+          description: job.job_description,
+          location: `${job.job_city || 'Kenya'}, Kenya`,
+          company_name: job.employer_name,
+          company_logo: job.employer_logo,
+          salary_range: this.formatSalary(job.job_min_salary, job.job_max_salary, 'KES'),
+          job_type: job.job_employment_type,
+          source: 'JSearch',
+          url: job.job_apply_link,
+          created_at: job.job_posted_at_datetime || new Date().toISOString(),
+          is_external: true,
+          requirements: job.job_required_skills?.join(', '),
+          benefits: job.job_highlights?.Benefits?.join(', '),
+          experience_level: job.job_experience_level
+        }));
 
-      const formattedJobs = data.data.map(job => ({
-        id: `jsearch_${job.job_id}`,
-        title: job.job_title,
-        description: job.job_description,
-        location: job.job_city || job.job_country,
-        company_name: job.employer_name,
-        company_logo: job.employer_logo,
-        salary_range: this.formatSalary(job.job_min_salary, job.job_max_salary, job.job_salary_currency),
-        job_type: job.job_employment_type,
-        source: 'JSearch',
-        url: job.job_apply_link,
-        created_at: job.job_posted_at_datetime || new Date().toISOString(),
-        is_external: true,
-        requirements: job.job_required_skills?.join(', '),
-        benefits: job.job_highlights?.Benefits?.join(', '),
-        experience_level: job.job_experience_level
-      }));
-
+      // Cache the filtered results
       this.setCachedJobs(cacheKey, formattedJobs);
+      console.log(`Found ${formattedJobs.length} jobs in Kenya`);
+      
       return formattedJobs;
     } catch (error) {
       console.error('Error searching jobs:', error);
@@ -348,9 +390,9 @@ export const getJobs = async (filters = {}, token) => {
       `)
       .order('created_at', { ascending: false });
 
-    if (filters.location) {
-      query = query.ilike('location', `%${filters.location}%`);
-    }
+    // Always filter for Kenyan jobs
+    query = query.ilike('location', '%Kenya%');
+
     if (filters.searchQuery) {
       query = query.ilike('title', `%${filters.searchQuery}%`);
     }
@@ -360,22 +402,11 @@ export const getJobs = async (filters = {}, token) => {
 
     console.log('Local jobs found:', localJobs.length);
 
-    // Check if external jobs are enabled in environment
-    const externalJobsEnabled = import.meta.env.VITE_ENABLE_EXTERNAL_JOBS === 'true';
-    
-    if (!externalJobsEnabled) {
-      console.log('External jobs are disabled');
-      return {
-        jobs: localJobs,
-        externalJobsStatus: 'disabled'
-      };
-    }
-
-    // Get external jobs using searchJobs instead of comprehensiveJobSearch
+    // Get external jobs from Kenya
     try {
       const externalJobs = await jobsApi.searchJobs(
         filters.searchQuery || '',
-        filters.location || 'US',
+        'Kenya',
         {
           datePosted: 'all',
           remoteOnly: filters.remoteOnly || false
@@ -383,7 +414,7 @@ export const getJobs = async (filters = {}, token) => {
       );
 
       if (externalJobs?.length > 0) {
-        console.log('External jobs found:', externalJobs.length);
+        console.log('External Kenyan jobs found:', externalJobs.length);
         return {
           jobs: [...localJobs, ...externalJobs],
           externalJobsStatus: 'success'
@@ -391,16 +422,11 @@ export const getJobs = async (filters = {}, token) => {
       }
     } catch (error) {
       console.error('Error fetching external jobs:', error);
-      // Return specific status for subscription error
-      if (error.message?.includes('not subscribed')) {
-        return {
-          jobs: localJobs,
-          externalJobsStatus: 'subscription_required'
-        };
-      }
       return {
         jobs: localJobs,
-        externalJobsStatus: 'error'
+        externalJobsStatus: error.message?.includes('not subscribed') 
+          ? 'subscription_required' 
+          : 'error'
       };
     }
 
