@@ -1,26 +1,30 @@
 [
-    {
-      "question": "What is KE ajiralink?",
-      "answer": "KE ajiralink is a Job Portal Application allows companies to post job listings and users to search and apply for jobs. It provides features for both job seekers and employers, with user-friendly interfaces and secure authentication."
-    },
-    {
-      "question": "How do I post a job?",
-      "answer": "As an employer, you can post a job by navigating to the 'Post Job' section after logging in. Fill in the job details and submit the form to create a new job listing."
-    },
-    {
-      "question": "How can I search for jobs?",
-      "answer": "Job seekers can search for jobs by keywords, location, category, and other filters using the search bar on the homepage or the dedicated job search page."
-    },
-    {
-      "question": "How do I apply for a job?",
-      "answer": "To apply for a job, click on the job listing and follow the application instructions provided. You may need to upload your resume and provide additional information."
-    },
-    {
-      "question": "Can I save jobs to apply later?",
-      "answer": "Yes, you can save job listings by clicking the 'Save Job' button on the job listing. Saved jobs can be accessed from your profile under the 'Saved Jobs' section."
-    },
-    {
-      "question": "How do I track my job applications?",
-      "answer": "Job seekers can track the status of their applications from the 'Applications' section in their profile. This section provides updates on the progress of each application."
-    }
-  ]
+  {
+    "question": "What is KE ajiralink?",
+    "answer": "KE ajiralink is a smart job search platform that aggregates job opportunities from multiple sources across Kenya. We use advanced technology to bring you the most relevant job listings, both from our platform and trusted external job sites, all in one place."
+  },
+  {
+    "question": "How does the job search work?",
+    "answer": "Our platform searches across multiple job sources to find the best matches for your search. You can search by job title, skills, or location. We cache search results for 3 days to provide faster access to job listings, and continuously update with new opportunities as they become available."
+  },
+  {
+    "question": "How do I save jobs I'm interested in?",
+    "answer": "When you find an interesting job, simply click the bookmark icon next to the listing. You can access all your saved jobs through the 'Saved Jobs' section in your profile. Saved jobs remain in your list until you remove them, making it easy to track and apply to positions at your convenience."
+  },
+  {
+    "question": "What happens when I click 'Apply' on a job listing?",
+    "answer": "For external job listings (jobs from partner sites), clicking 'Apply' will take you directly to the original job posting where you can complete your application. This ensures you always have access to the most up-to-date application process for each position."
+  },
+  {
+    "question": "How current are the job listings?",
+    "answer": "We continuously fetch new job listings from multiple sources. Our platform caches results for 3 days to provide fast access, while regularly updating with new positions. This means you get the best balance of performance and freshness in your job search."
+  },
+  {
+    "question": "Can I filter jobs by location?",
+    "answer": "Yes, you can filter jobs by location within Kenya. Our search functionality allows you to find both local and remote opportunities that match your location preferences. Simply use the location filter in the search bar to narrow down your results."
+  },
+  {
+    "question": "What should I do if I find an interesting job but am not ready to apply?",
+    "answer": "Use our 'Save Job' feature to bookmark any interesting positions. You can easily access your saved jobs later through your profile, and they'll remain saved until you decide to remove them. This helps you keep track of opportunities while you prepare your application materials."
+  }
+]

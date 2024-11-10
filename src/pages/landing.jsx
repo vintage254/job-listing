@@ -44,11 +44,6 @@ const LandingPage = () => {
             Find Jobs
           </Button>
         </Link>
-        <Link to={"/post-job"}>
-          <Button variant="destructive" size="xl">
-            Post a Job
-          </Button>
-        </Link>
       </div>
       <Carousel
         plugins={[
@@ -76,18 +71,22 @@ const LandingPage = () => {
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
           <CardHeader>
-            <CardTitle className="font-bold">For Job Seekers</CardTitle>
+            <CardTitle className="font-bold">Discover Career Insights for Job Seekers in Today's Market</CardTitle>
           </CardHeader>
           <CardContent>
-            Search and apply for jobs, track applications, and more.
+            Explore industry trends, skill-building tips, and success stories
+            to help you stand out in your job search. From crafting a winning
+            resume to mastering interviews, we've got you covered!
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="font-bold">For Employers</CardTitle>
+            <CardTitle className="font-bold"> Search and Apply</CardTitle>
           </CardHeader>
           <CardContent>
-            Post jobs, manage applications, and find the best candidates.
+            Find the perfect role by browsing job listings tailored to your
+            skills. Apply directly, track your applications, and stay one step
+            ahead in your career journey!
           </CardContent>
         </Card>
       </section>

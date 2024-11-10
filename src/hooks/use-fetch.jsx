@@ -9,15 +9,20 @@ const useFetch = (fn) => {
     try {
       setLoading(true);
       setError(null);
-      // If first argument is an object and has an id property, use that directly
-      const params = args[0];
-      const actualParams = typeof params === 'object' && params.id ? params.id : args[0];
-      const result = await fn(actualParams);
+      
+      // If the last argument is a function (getToken), call it to get the token
+      const lastArg = args[args.length - 1];
+      const token = typeof lastArg === 'function' ? await lastArg() : args[args.length - 1];
+      
+      // Remove the token from args if it was a function
+      const fnArgs = typeof lastArg === 'function' ? args.slice(0, -1) : args;
+      
+      const result = await fn(...fnArgs, token);
       setData(result);
       return result;
     } catch (error) {
-      setError(error);
       console.error('Error in useFetch:', error);
+      setError(error);
       throw error;
     } finally {
       setLoading(false);

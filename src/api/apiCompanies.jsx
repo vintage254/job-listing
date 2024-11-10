@@ -1,77 +1,83 @@
-import { createClient } from '@supabase/supabase-js';
-
-// Initialize Supabase client
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import supabaseClient, { supabaseUrl } from "@/utils/supabase";
 
 // Fetch Companies
-export async function getCompanies() {
+export async function getCompanies(token) {
   try {
-    const { data, error } = await supabase
-      .from("companies")
-      .select("*")
-      .order('name', { ascending: true });
+    if (!token) {
+      throw new Error('Authentication token is required');
+    }
+
+    const supabase = await supabaseClient(token);
+    const { data, error } = await supabase.from("companies").select("*");
 
     if (error) {
       console.error("Error fetching Companies:", error);
-      return null;
+      throw error;
     }
 
     return data;
   } catch (error) {
-    console.error("Error fetching Companies:", error);
-    return null;
+    console.error("Error in getCompanies:", error);
+    throw error;
   }
 }
 
 // Add Company
-export async function addNewCompany(_, companyData) {
+export async function addNewCompany({ name, logo }, token) {
   try {
-    // Generate a unique ID for the company
-    const companyId = `company_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    if (!token) {
+      throw new Error('Authentication token is required');
+    }
 
-    // First, upload the logo
+    if (!name || !logo) {
+      throw new Error("Company name and logo are required");
+    }
+
+    const supabase = await supabaseClient(token);
+
+    // Generate unique filename
+    const timestamp = Date.now();
     const random = Math.floor(Math.random() * 90000);
-    const fileName = `logo-${random}-${companyData.name.replace(/\s+/g, '-').toLowerCase()}`;
-    const fileExt = companyData.logo.name.split('.').pop();
-    const fullFileName = `${fileName}.${fileExt}`;
+    const safeFileName = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const fileName = `company_logos/${timestamp}-${random}-${safeFileName}`;
 
-    const { error: storageError } = await supabase.storage
+    // Upload logo with proper content type
+    const { error: storageError, data: storageData } = await supabase.storage
       .from("company-logo")
-      .upload(fullFileName, companyData.logo, {
+      .upload(fileName, logo, {
+        contentType: logo.type,
         cacheControl: '3600',
-        upsert: false,
-        contentType: companyData.logo.type
+        upsert: false
       });
 
     if (storageError) {
-      console.error("Storage Error:", storageError);
-      throw new Error("Error uploading Company Logo");
+      console.error("Storage error:", storageError);
+      throw new Error(storageError.message || "Error uploading Company Logo");
     }
 
-    // Get the public URL for the uploaded logo
+    // Get public URL
     const { data: { publicUrl } } = supabase.storage
       .from("company-logo")
-      .getPublicUrl(fullFileName);
+      .getPublicUrl(fileName);
 
-    // Then create the company record
-    const { data, error } = await supabase
+    // Create company record
+    const { data, error: dbError } = await supabase
       .from("companies")
-      .insert([
-        {
-          id: companyId,
-          name: companyData.name,
-          logo_url: publicUrl,
-          created_at: new Date().toISOString()
-        }
-      ])
+      .insert([{
+        name: name,
+        logo_url: publicUrl,
+        created_at: new Date().toISOString()
+      }])
       .select();
 
-    if (error) {
-      console.error("Database Error:", error);
-      throw new Error("Error creating company record");
+    if (dbError) {
+      // If database insert fails, try to clean up the uploaded file
+      await supabase.storage
+        .from("company-logo")
+        .remove([fileName]);
+      
+      console.error("Database error:", dbError);
+      throw new Error(dbError.message || "Error creating company");
     }
 
     return data;

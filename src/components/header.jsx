@@ -1,99 +1,42 @@
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import {
-  SignedIn,
-  SignedOut,
-  UserButton,
-  SignIn,
-  useUser,
-} from "@clerk/clerk-react";
-import { Button } from "./ui/button";
-import { BriefcaseBusiness, Heart, PenBox } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "./theme-toggle";
+import { UserButton, useUser } from "@clerk/clerk-react";
 import LogoSvg from "./LogoSvg";
 
 const Header = () => {
-  const [showSignIn, setShowSignIn] = useState(false);
-
-  const [search, setSearch] = useSearchParams();
-  const { user } = useUser();
-
-  useEffect(() => {
-    if (search.get("sign-in")) {
-      setShowSignIn(true);
-    }
-  }, [search]);
-
-  const handleOverlayClick = (e) => {
-    if (e.target === e.currentTarget) {
-      setShowSignIn(false);
-      setSearch({});
-    }
-  };
+  const { user, isLoaded } = useUser();
 
   return (
-    <>
-      <nav className="py-4 flex justify-between items-center">
-        <Link to="/">
-          <LogoSvg className="h-20" alt="Hirrd Logo" />
-        </Link>
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-14 items-center justify-between">
+        <Link to="/" className="font-bold text-xl"><LogoSvg className="h-8 sm:h-8 lg:h-8" /></Link>
 
-        <div className="flex gap-8">
-          <SignedOut>
-            <Button variant="outline" onClick={() => setShowSignIn(true)}>
-              Login
-            </Button>
-          </SignedOut>
-          <SignedIn>
-            {user?.unsafeMetadata?.role === "recruiter" && (
-              <Link to="/post-job">
-                <Button variant="destructive" className="rounded-full">
-                  <PenBox size={20} className="mr-2" />
-                  Post a Job
-                </Button>
+        <nav className="flex items-center gap-4 sm:gap-6">
+          <Link to="/job-listing" className="text-sm font-medium hover:underline">
+            Jobs
+          </Link>
+          <Link to="/blog" className="text-sm font-medium hover:underline">
+            Trending News Articles
+          </Link>
+          {isLoaded ? (
+            user ? (
+              <div className="flex items-center gap-4">
+                <Link to="/saved-job" className="text-sm font-medium hover:underline">
+                  Saved Jobs
+                </Link>
+                <UserButton afterSignOutUrl="/" />
+              </div>
+            ) : (
+              <Link to="/sign-in">
+                <Button>Sign In</Button>
               </Link>
-            )}
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "w-10 h-10",
-                },
-              }}
-            >
-              <UserButton.MenuItems>
-                <UserButton.Link
-                  label="My Jobs"
-                  labelIcon={<BriefcaseBusiness size={15} />}
-                  href="/my-jobs"
-                />
-                <UserButton.Link
-                  label="Saved Jobs"
-                  labelIcon={<Heart size={15} />}
-                  href="/saved-job"
-                />
-                <UserButton.Link
-                  label="Applicants"
-                  labelIcon={<Heart size={15} />}
-                  href="/applicants"
-                />
-                <UserButton.Action label="manageAccount" />
-              </UserButton.MenuItems>
-            </UserButton>
-          </SignedIn>
-        </div>
-      </nav>
-
-      {showSignIn && (
-        <div
-          className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50"
-          onClick={handleOverlayClick}
-        >
-          <SignIn
-            signUpForceRedirectUrl="/onboarding"
-            fallbackRedirectUrl="/onboarding"
-          />
-        </div>
-      )}
-    </>
+            )
+          ) : null}
+          <ThemeToggle />
+        </nav>
+      </div>
+    </header>
   );
 };
 

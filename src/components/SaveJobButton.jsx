@@ -1,41 +1,68 @@
-import { useState } from 'react';
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { BookmarkIcon } from "lucide-react";
-import { useUser } from "@clerk/clerk-react";
-import { toggleSaveJob } from '@/api/apijobs';
+import { toggleSaveJob } from "@/api/apijobs";
 import { useToast } from "@/components/ui/use-toast";
+import { useUser, useAuth } from "@clerk/clerk-react";
 
-const SaveJobButton = ({ jobId, initialSaved = false, jobData }) => {
+const SaveJobButton = ({ jobId, initialSaved, jobData }) => {
   const [isSaved, setIsSaved] = useState(initialSaved);
   const [isLoading, setIsLoading] = useState(false);
-  const { user, isSignedIn } = useUser();
   const { toast } = useToast();
+  const { user } = useUser();
+  const { getToken } = useAuth();
 
-  const handleSaveJob = async () => {
-    if (!isSignedIn || !user) {
+  useEffect(() => {
+    setIsSaved(initialSaved);
+  }, [initialSaved]);
+
+  const handleSaveJob = async (e) => {
+    e.preventDefault();
+    
+    if (!user) {
       toast({
-        title: "Please sign in",
-        description: "You need to be signed in to save jobs",
+        title: "Sign in required",
+        description: "Please sign in to save jobs",
         variant: "destructive",
       });
       return;
     }
-
+    
     try {
       setIsLoading(true);
-      await toggleSaveJob(user.id, jobId, isSaved, jobData);
-      setIsSaved(!isSaved);
+      const token = await getToken({ template: "supabase" });
+      
+      if (!token) {
+        throw new Error("Authentication failed");
+      }
+
+      const jobDataWithId = {
+        ...jobData,
+        id: jobId || jobData.id || `job_${Date.now()}`
+      };
+
+      const result = await toggleSaveJob(
+        user.id, 
+        jobDataWithId, 
+        token
+      );
+      
+      setIsSaved(result.saved);
       
       toast({
-        title: isSaved ? "Job unsaved" : "Job saved",
-        description: isSaved ? "Job removed from saved jobs" : "Job added to saved jobs",
+        title: result.saved ? "Job Saved" : "Job Removed",
+        description: result.saved 
+          ? "Job has been saved to your list" 
+          : "Job has been removed from your saved list",
+        duration: 2000,
       });
     } catch (error) {
       console.error('Error toggling job save:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to save/unsave job",
+        description: "Failed to save job. Please try again.",
         variant: "destructive",
+        duration: 3000,
       });
     } finally {
       setIsLoading(false);
@@ -44,15 +71,23 @@ const SaveJobButton = ({ jobId, initialSaved = false, jobData }) => {
 
   return (
     <Button
-      variant="ghost"
+      variant="outline"
       size="icon"
       onClick={handleSaveJob}
       disabled={isLoading}
-      className={`${isSaved ? 'text-blue-500' : 'text-gray-500'} transition-colors`}
+      className={`transition-colors duration-200 ${
+        isSaved 
+          ? "text-blue-500 hover:text-blue-600" 
+          : "text-gray-500 hover:text-gray-600"
+      }`}
+      title={isSaved ? "Remove from saved jobs" : "Save job"}
     >
-      <BookmarkIcon className={`w-5 h-5 ${isLoading ? 'animate-pulse' : ''}`} />
+      <BookmarkIcon 
+        className={`h-4 w-4 ${isLoading ? 'animate-pulse' : ''}`} 
+        fill={isSaved ? "currentColor" : "none"}
+      />
     </Button>
   );
 };
 
-export default SaveJobButton; 
+export default SaveJobButton;

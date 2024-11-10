@@ -1,13 +1,21 @@
 import React, { useEffect, useState } from 'react'
 import { useUser, useAuth } from "@clerk/clerk-react";
 import { Link } from "react-router-dom";
-import { getJobs, toggleSaveJob } from '@/api/apijobs';
+import jobsApi, { getJobs, toggleSaveJob } from '@/api/apijobs';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { BookmarkIcon, MapPinIcon, BriefcaseIcon } from "lucide-react";
 import SaveJobButton from '@/components/SaveJobButton';
+import { 
+  Pagination, 
+  PaginationContent, 
+  PaginationItem, 
+  PaginationLink, 
+  PaginationNext, 
+  PaginationPrevious 
+} from "@/components/ui/pagination";
 
 // Add image error handling component
 const CompanyLogo = ({ src, alt, className }) => {
@@ -24,7 +32,7 @@ const CompanyLogo = ({ src, alt, className }) => {
 };
 
 const JobListingPage = () => {
-  const { user } = useUser();
+  const { user, isSignedIn } = useUser();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,24 +44,44 @@ const JobListingPage = () => {
   });
   const { getToken } = useAuth();
   const [externalJobsStatus, setExternalJobsStatus] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const jobsPerPage = 3; // Changed from 10 to 3 jobs per page
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    loadJobs();
-  }, [filters]);
+    const loadJobs = async () => {
+      try {
+        setLoading(true);
+        let token = null;
 
-  const loadJobs = async () => {
-    try {
-      setLoading(true);
-      const token = await getToken({ template: "supabase" });
-      const result = await getJobs(filters, token);
-      setJobs(result.jobs);
-      setExternalJobsStatus(result.externalJobsStatus);
-    } catch (error) {
-      console.error('Error loading jobs:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+        if (isSignedIn) {
+          try {
+            token = await getToken({ template: "supabase" });
+          } catch (error) {
+            console.error('Failed to get auth token:', error);
+          }
+        }
+
+        const result = await getJobs({
+          page: currentPage,
+          limit: jobsPerPage,
+          searchQuery: filters.searchQuery,
+          location: filters.location
+        }, token);
+
+        setJobs(result.jobs || []);
+        setTotalPages(Math.ceil((result.total || 0) / jobsPerPage));
+      } catch (err) {
+        console.error('Error loading jobs:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadJobs();
+  }, [isSignedIn, getToken, currentPage, filters, jobsPerPage]);
 
   const handleSearch = (e) => {
     e.preventDefault();
@@ -74,9 +102,13 @@ const JobListingPage = () => {
     }
   };
 
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const JobCard = ({ job }) => {
-    const isExternal = job.is_external;
-    const isSaved = !isExternal && job.saved_jobs?.some(saved => saved.user_id === user.id);
+    const isSaved = job.saved_jobs?.some(saved => saved.user_id === user.id);
 
     return (
       <Card className="p-6 hover:shadow-lg transition-shadow">
@@ -115,31 +147,23 @@ const JobListingPage = () => {
           </div>
           
           <div className="flex gap-2">
-            {!isExternal && (
-              <SaveJobButton 
-                jobId={job.id} 
-                initialSaved={isSaved}
-                jobData={{
-                  title: job.title,
-                  company_name: job.company_name || job.company?.name,
-                  company_logo: job.company_logo || job.company?.logo_url,
-                  location: job.location,
-                  description: job.description,
-                  salary_range: job.salary_range,
-                  job_type: job.job_type,
-                  source: job.source
-                }} 
-              />
-            )}
-            {isExternal ? (
-              <a href={job.url} target="_blank" rel="noopener noreferrer">
-                <Button>Apply on {job.source}</Button>
-              </a>
-            ) : (
-              <Link to={`/job/${job.id}`}>
-                <Button>View Details</Button>
-              </Link>
-            )}
+            <SaveJobButton 
+              jobId={job.id} 
+              initialSaved={isSaved}
+              jobData={{
+                title: job.title,
+                company_name: job.company_name,
+                company_logo: job.company_logo,
+                location: job.location,
+                description: job.description,
+                salary_range: job.salary_range,
+                job_type: job.job_type,
+                source: job.source
+              }} 
+            />
+            <a href={job.url} target="_blank" rel="noopener noreferrer">
+              <Button>Apply Now</Button>
+            </a>
           </div>
         </div>
 
@@ -212,9 +236,64 @@ const JobListingPage = () => {
               </p>
             </div>
           ) : (
-            jobs.map((job) => (
-              <JobCard key={job.id} job={job} />
-            ))
+            <>
+              <div className="space-y-6">
+                {jobs.slice(0, 3).map((job) => (
+                  <JobCard key={job.id} job={job} />
+                ))}
+              </div>
+
+              {/* Enhanced Pagination */}
+              {totalPages > 1 && (
+                <div className="mt-8">
+                  <p className="text-sm text-gray-500 mb-4 text-center">
+                    Showing page {currentPage} of {totalPages}
+                  </p>
+                  <Pagination className="mt-4">
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious 
+                          onClick={() => handlePageChange(currentPage - 1)}
+                          disabled={currentPage === 1}
+                        />
+                      </PaginationItem>
+
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter(page => {
+                          return page === 1 || 
+                                 page === totalPages || 
+                                 Math.abs(page - currentPage) <= 1;
+                        })
+                        .map((page, index, array) => (
+                          <React.Fragment key={page}>
+                            {index > 0 && array[index - 1] !== page - 1 && (
+                              <PaginationItem>
+                                <PaginationLink disabled>...</PaginationLink>
+                              </PaginationItem>
+                            )}
+                            <PaginationItem>
+                              <PaginationLink
+                                onClick={() => handlePageChange(page)}
+                                isActive={currentPage === page}
+                                className={currentPage === page ? "bg-blue-500 text-white" : ""}
+                              >
+                                {page}
+                              </PaginationLink>
+                            </PaginationItem>
+                          </React.Fragment>
+                        ))}
+
+                      <PaginationItem>
+                        <PaginationNext 
+                          onClick={() => handlePageChange(currentPage + 1)}
+                          disabled={currentPage === totalPages}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -1,6 +1,15 @@
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
+import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -8,10 +17,20 @@ app.use(cors());
 const GNEWS_API_KEY = process.env.VITE_GNEWS_API_KEY;
 const GNEWS_API_URL = 'https://gnews.io/api/v4/search';
 
+// Rate limiting setup
+const limiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 50 // limit each IP to 50 requests per windowMs
+});
+
+app.use(limiter);
+
 app.get('/api/news/:category', async (req, res) => {
   try {
     const { category } = req.params;
     const { lang, q } = req.query;
+
+    console.log(`Fetching news for category: ${category}, query: ${q}`);
 
     const response = await axios.get(GNEWS_API_URL, {
       params: {
@@ -25,8 +44,11 @@ app.get('/api/news/:category', async (req, res) => {
 
     res.json(response.data);
   } catch (error) {
-    console.error('Proxy error:', error);
-    res.status(500).json({ error: 'Failed to fetch news' });
+    console.error('Proxy server error:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: 'Failed to fetch news',
+      details: error.response?.data || error.message
+    });
   }
 });
 

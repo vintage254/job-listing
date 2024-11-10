@@ -1,69 +1,105 @@
-# KE Ajiralink - Kenyan Job Listing Platform
+# Job Board Application
 
-![KE Ajiralink Logo](public/ke-ajiralink-logo.svg)
-
-## About KE Ajiralink
-
-KE Ajiralink is a modern, user-friendly job listing platform designed specifically for the Kenyan market. Our mission is to connect talented individuals with their dream jobs and help employers find the perfect candidates across Kenya.
+A modern job board application built with React, Vite, and Supabase, featuring external job API integration and user authentication.
 
 ## Features
 
-- **Job Listings**: Browse thousands of job opportunities across various industries in Kenya.
-- **Job Posting**: Employers can easily post and manage job listings.
-- **User Profiles**: Job seekers can create and manage their professional profiles.
-- **Search and Filters**: Advanced search functionality to find relevant job opportunities quickly.
-- **Responsive Design**: Fully responsive web application, accessible on desktop and mobile devices.
-- **Localization**: Interface available in both English and Swahili.
+### Job Search & Listing
+- Real-time job search with filters
+- Location-based job filtering
+- Pagination support
+- Job caching for improved performance
+- Integration with JSearch API for comprehensive job listings
 
-## Technologies Used
+### Authentication & User Features
+- Secure authentication using Clerk
+- Protected routes for authenticated users
+- User profile management
+- Save/bookmark favorite jobs
+- View saved jobs history
 
-- React
+### Technical Features
+- Supabase database integration
+- Job data caching system
+- Rate limiting for API calls
+- Error handling and recovery
+- Responsive design
+- Toast notifications for user feedback
+
+## Tech Stack
+
+### Frontend
+- React 18
 - Vite
-- Tailwind CSS
-- React Router
+- TailwindCSS
+- Shadcn/ui components
+- React Router DOM
+- Axios for API calls
 
-## Getting Started
+### Backend & Services
+- Supabase (Database)
+- Clerk (Authentication)
+- JSearch API (External Job Data)
+- Vercel (Deployment)
 
-### Prerequisites
+### State Management & Data Handling
+- React Hooks
+- Custom caching system
+- Local storage management
 
-- Node.js (v14.0.0 or later)
-- npm (v6.0.0 or later)
+## Environment Setup
 
-### Installation
+Create a `.env` file with the following variables:
+
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_RAPIDAPI_KEY=your_jsearch_api_key
+VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+```
+
+## Installation
 
 1. Clone the repository:
-   ```
-   git clone https://github.com/your-username/ke-ajiralink.git
-   ```
+```bash
+git clone https://github.com/yourusername/job-board.git
+```
 
-2. Navigate to the project directory:
-   ```
-   cd ke-ajiralink
-   ```
+2. Install dependencies:
+```bash
+npm install
+```
 
-3. Install dependencies:
-   ```
-   npm install
-   ```
+3. Run development server:
+```bash
+npm run dev
+```
 
-4. Start the development server:
-   ```
-   npm run dev
-   ```
+## Database Schema
 
-5. Open your browser and visit `http://localhost:5173` to view the application.
+### cached_jobs
+- query_key (TEXT)
+- job_data (JSONB)
+- cached_at (TIMESTAMP)
+- expires_at (TIMESTAMP)
+
+### saved_jobs
+- user_id (TEXT)
+- job_id (TEXT)
+- job_data (JSONB)
+- saved_at (TIMESTAMP)
 
 ## Contributing
 
-We welcome contributions to KE Ajiralink! Please read our [Contributing Guide](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+1. Fork the repository
+2. Create your feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a new Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
-
-## Contact
-
-For any inquiries, please reach out to us at support@keajiralink.co.ke
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ---
 
