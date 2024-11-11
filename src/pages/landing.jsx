@@ -17,20 +17,20 @@ import {
 import { Link } from "react-router-dom";
 import LogoSvg from "@/components/LogoSvg";
 import HeroBanner from "@/components/banner";
+import { useTheme } from "@/components/theme-provider";
 
 const LandingPage = () => {
+  const { theme } = useTheme();
+
   return (
     <main className="flex flex-col gap-10 sm:gap-20 py-10 sm:py-20">
       <section className="text-center ">
-        <h1 className="flex flex-col items-center justify-center gradient-title font-extrabold text-4xl sm:text-6xl lg:text-8xl tracking-tighter py-4">
+        <h1 className={`flex flex-col items-center justify-center gradient-title font-extrabold text-4xl sm:text-6xl lg:text-8xl tracking-tighter py-4 ${
+          theme === 'light' ? 'text-black-800' : 'text-white'
+        }`}>
           Your Dream Job is
           <span className="flex items-center gap-2 sm:gap-6">
             one click away
-            {/*<img
-              src="/hired2.jpg"
-              className="h-14 sm:h-24 lg:h-32"
-              alt="Hirrd Logo"
-            />*/}
             <LogoSvg className="h-12 sm:h-24 lg:h-32" />
           </span>
         </h1>
@@ -73,7 +73,7 @@ const LandingPage = () => {
           <CardHeader>
             <CardTitle className="font-bold">Discover Career Insights for Job Seekers in Today's Market</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent >
             Explore industry trends, skill-building tips, and success stories
             to help you stand out in your job search. From crafting a winning
             resume to mastering interviews, we've got you covered!
