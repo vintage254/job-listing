@@ -21,70 +21,119 @@ class UnifiedJobsAPI {
 
   async searchJobs(query, location = 'Kenya', options = {}) {
     try {
-      const cacheKey = this.generateCacheKey(query, location, options);
+      const cacheKey = this.generateCacheKey(query, location);
       
       // Try cache first if we have a token
       if (options.token) {
         const cachedData = await this.getCachedJobs(cacheKey, options.token);
         if (cachedData) {
-          return { ...cachedData.job_data, source: 'cache' };
+          // Return paginated results from cache
+          const paginatedResults = this.paginateResults(
+            cachedData.job_data.jobs,
+            options.page || 1,
+            options.limit || 10
+          );
+          return { 
+            ...paginatedResults,
+            source: 'cache',
+            total: cachedData.job_data.total
+          };
         }
       }
 
-      // Fetch fresh data
-      const freshData = await this.fetchFreshJobs(query, location, options);
+      // Fetch fresh data for all pages
+      const allResults = await this.fetchAllJobPages(query, location, options);
       
-      // Cache if we have a token
-      if (options.token && freshData.jobs.length > 0) {
-        await this.setCachedJobs(cacheKey, freshData, options.token);
+      // Cache all results if we have a token
+      if (options.token && allResults.jobs.length > 0) {
+        await this.setCachedJobs(cacheKey, allResults, options.token);
       }
 
-      return { ...freshData, source: 'api' };
+      // Return paginated results
+      const paginatedResults = this.paginateResults(
+        allResults.jobs,
+        options.page || 1,
+        options.limit || 10
+      );
+
+      return { 
+        ...paginatedResults,
+        source: 'api',
+        total: allResults.total
+      };
     } catch (error) {
       console.error('Error in searchJobs:', error);
       return { jobs: [], total: 0, source: 'error' };
     }
   }
 
-  async fetchFreshJobs(query, location, options = {}) {
+  async fetchAllJobPages(query, location, options = {}) {
     try {
-      // Check rate limits
-      const now = Date.now();
-      if (now - this.lastRequestTime < this.minRequestInterval) {
-        await new Promise(resolve => 
-          setTimeout(resolve, this.minRequestInterval - (now - this.lastRequestTime))
-        );
-      }
+      const totalPages = 3; // Fetch 3 pages by default
+      const allJobs = [];
+      
+      for (let page = 1; page <= totalPages; page++) {
+        // Check rate limits
+        await this.waitForRateLimit();
+        
+        const response = await axios.get(`https://${this.jsearchHost}/search`, {
+          headers: {
+            'X-RapidAPI-Key': this.apiKey,
+            'X-RapidAPI-Host': this.jsearchHost
+          },
+          params: {
+            query: `${query} ${location}`,
+            page: page.toString(),
+            num_pages: '1',
+            date_posted: options.datePosted || 'all',
+            remote_jobs_only: options.remoteOnly || false
+          }
+        });
 
-      const response = await axios.get(`https://${this.jsearchHost}/search`, {
-        headers: {
-          'X-RapidAPI-Key': this.apiKey,
-          'X-RapidAPI-Host': this.jsearchHost
-        },
-        params: {
-          query: `${query} ${location}`,
-          page: options.page || '1',
-          num_pages: '1',
-          date_posted: options.datePosted || 'all',
-          remote_jobs_only: options.remoteOnly || false
+        this.lastRequestTime = Date.now();
+
+        if (response.data?.data) {
+          const processedJobs = this.processJobData(response.data.data);
+          allJobs.push(...processedJobs);
+          
+          // If we get fewer results than expected, we've reached the end
+          if (processedJobs.length < 10) break;
         }
-      });
-
-      this.lastRequestTime = Date.now();
-
-      if (response.data?.data) {
-        const jobs = this.processJobData(response.data.data);
-        return {
-          jobs,
-          total: jobs.length
-        };
       }
 
-      return { jobs: [], total: 0 };
+      return {
+        jobs: allJobs,
+        total: allJobs.length
+      };
     } catch (error) {
-      console.error('Error fetching jobs:', error);
+      console.error('Error fetching all job pages:', error);
       return { jobs: [], total: 0 };
     }
+  }
+
+  async waitForRateLimit() {
+    const now = Date.now();
+    if (now - this.lastRequestTime < this.minRequestInterval) {
+      await new Promise(resolve => 
+        setTimeout(resolve, this.minRequestInterval - (now - this.lastRequestTime))
+      );
+    }
+  }
+
+  paginateResults(jobs, page, limit) {
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    return {
+      jobs: jobs.slice(startIndex, endIndex),
+      total: jobs.length,
+      currentPage: page,
+      totalPages: Math.ceil(jobs.length / limit)
+    };
+  }
+
+  generateCacheKey(query, location) {
+    // Remove page from cache key to store all results together
+    return `jobs_${query}_${location}`.toLowerCase();
   }
 
   processJobData(jobs) {
@@ -135,10 +184,6 @@ class UnifiedJobsAPI {
     } catch (error) {
       console.error('Cache write error:', error);
     }
-  }
-
-  generateCacheKey(query, location, options) {
-    return `jobs_${query}_${location}_${options.page || 1}`;
   }
 
   // ... rest of the class methods ...
