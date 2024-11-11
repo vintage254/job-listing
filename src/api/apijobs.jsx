@@ -27,21 +27,80 @@ class UnifiedJobsAPI {
       if (options.token) {
         const cachedData = await this.getCachedJobs(cacheKey, options.token);
         if (cachedData) {
-          // Check for background refresh
-          const cacheAge = Date.now() - new Date(cachedData.cached_at).getTime();
-          if (cacheAge > BACKGROUND_REFRESH_THRESHOLD) {
-            this.refreshCacheInBackground(query, location, options);
-          }
           return { ...cachedData.job_data, source: 'cache' };
         }
       }
 
       // Fetch fresh data
-      return await this.fetchFreshJobs(query, location, options);
+      const freshData = await this.fetchFreshJobs(query, location, options);
+      
+      // Cache if we have a token
+      if (options.token && freshData.jobs.length > 0) {
+        await this.setCachedJobs(cacheKey, freshData, options.token);
+      }
+
+      return { ...freshData, source: 'api' };
     } catch (error) {
       console.error('Error in searchJobs:', error);
       return { jobs: [], total: 0, source: 'error' };
     }
+  }
+
+  async fetchFreshJobs(query, location, options = {}) {
+    try {
+      // Check rate limits
+      const now = Date.now();
+      if (now - this.lastRequestTime < this.minRequestInterval) {
+        await new Promise(resolve => 
+          setTimeout(resolve, this.minRequestInterval - (now - this.lastRequestTime))
+        );
+      }
+
+      const response = await axios.get(`https://${this.jsearchHost}/search`, {
+        headers: {
+          'X-RapidAPI-Key': this.apiKey,
+          'X-RapidAPI-Host': this.jsearchHost
+        },
+        params: {
+          query: `${query} ${location}`,
+          page: options.page || '1',
+          num_pages: '1',
+          date_posted: options.datePosted || 'all',
+          remote_jobs_only: options.remoteOnly || false
+        }
+      });
+
+      this.lastRequestTime = Date.now();
+
+      if (response.data?.data) {
+        const jobs = this.processJobData(response.data.data);
+        return {
+          jobs,
+          total: jobs.length
+        };
+      }
+
+      return { jobs: [], total: 0 };
+    } catch (error) {
+      console.error('Error fetching jobs:', error);
+      return { jobs: [], total: 0 };
+    }
+  }
+
+  processJobData(jobs) {
+    return jobs.map(job => ({
+      id: job.job_id,
+      title: job.job_title,
+      company_name: job.employer_name,
+      company_logo: job.employer_logo,
+      location: job.job_city || job.job_country,
+      description: job.job_description,
+      job_type: job.job_employment_type,
+      salary_range: job.job_salary || 'Not specified',
+      url: job.job_apply_link,
+      source: 'JSearch API',
+      posted_at: job.job_posted_at_datetime_utc
+    }));
   }
 
   async getCachedJobs(key, token) {
