@@ -38,7 +38,11 @@ const router = createBrowserRouter([
       },
       {
         path: '/blog',
-        element: <BlogPage />,
+        element: (
+          <ProtectedRoute>
+            <BlogPage />
+          </ProtectedRoute>
+        )
       },
       {
         path: '/sign-in/*',
