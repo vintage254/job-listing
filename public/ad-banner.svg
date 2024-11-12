@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="628" viewBox="0 0 1200 628" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <!-- Dark background with grid pattern -->
+  <defs>
+    <pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse">
+      <path d="M 50 0 L 0 0 0 50" fill="none" stroke="#1E293B" stroke-width="0.5" opacity="0.1"/>
+    </pattern>
+  </defs>
+  
+  <!-- Main background -->
+  <rect width="1200" height="628" fill="#0F172A"/>
+  <rect width="1200" height="628" fill="url(#grid)"/>
+  
+  <!-- Left side content -->
+  <g transform="translate(80, 120)">
+    <!-- Logo -->
+    <text font-family="Arial, sans-serif" font-size="36" font-weight="bold">
+      <tspan fill="#FFFFFF">KE</tspan>
+      <tspan fill="#FF4D4D" dx="8">Ajira</tspan>
+      <tspan fill="#4ADE80">Link</tspan>
+    </text>
+    
+    <!-- Main heading -->
+    <text y="100" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#FFFFFF">
+      Your Dream Job is
+    </text>
+    <text y="190" font-family="Arial, sans-serif" font-size="72" font-weight="bold" fill="#FFFFFF">
+      one click away
+    </text>
+    
+    <!-- Subtext -->
+    <text y="250" font-family="Arial, sans-serif" font-size="24" fill="#94A3B8">
+      Explore thousands of job listings
+    </text>
+  </g>
+  
+  <!-- Right side phone mockup -->
+  <g transform="translate(650, 80)">
+    <!-- Phone frame -->
+    <rect width="480" height="480" rx="40" fill="#FFFFFF"/>
+    
+    <!-- App content -->
+    <g transform="translate(30, 30)">
+      <!-- Header -->
+      <text font-family="Arial, sans-serif" font-size="24" font-weight="bold" fill="#1E293B">
+        Catalogue
+      </text>
+      
+      <!-- Filter buttons -->
+      <g transform="translate(0, 50)">
+        <rect width="80" height="36" rx="18" fill="#FF4D4D"/>
+        <rect x="90" width="80" height="36" rx="18" fill="#4ADE80"/>
+        <rect x="180" width="80" height="36" rx="18" fill="#3B82F6"/>
+      </g>
+      
+      <!-- Job cards -->
+      <g transform="translate(0, 110)">
+        <!-- Card 1 -->
+        <rect width="420" height="80" rx="12" fill="#F8FAFC"/>
+        <text x="20" y="35" font-family="Arial, sans-serif" font-size="16" fill="#1E293B">Software Engineer</text>
+        <text x="20" y="60" font-family="Arial, sans-serif" font-size="14" fill="#64748B">Google Kenya</text>
+        
+        <!-- Card 2 -->
+        <g transform="translate(0, 90)">
+          <rect width="420" height="80" rx="12" fill="#F8FAFC"/>
+          <text x="20" y="35" font-family="Arial, sans-serif" font-size="16" fill="#1E293B">Product Designer</text>
+          <text x="20" y="60" font-family="Arial, sans-serif" font-size="14" fill="#64748B">Microsoft</text>
+        </g>
+        
+        <!-- Card 3 -->
+        <g transform="translate(0, 180)">
+          <rect width="420" height="80" rx="12" fill="#F8FAFC"/>
+          <text x="20" y="35" font-family="Arial, sans-serif" font-size="16" fill="#1E293B">Data Analyst</text>
+          <text x="20" y="60" font-family="Arial, sans-serif" font-size="14" fill="#64748B">Amazon</text>
+        </g>
+      </g>
+    </g>
+  </g>
+  
+  <!-- Visit website link -->
+  <a xlink:href="https://keajiralink.co.ke/" target="_blank">
+    <rect x="80" y="480" width="200" height="50" rx="25" fill="#4ADE80"/>
+    <text x="130" y="512" font-family="Arial, sans-serif" font-size="18" fill="#000000" font-weight="bold">
+      Visit Now →
+    </text>
+  </a>
+</svg> 
