@@ -1,4 +1,6 @@
 # Job Board Application
+https://keajiralink.co.ke
+![AJIRA](https://github.com/user-attachments/assets/69182392-9245-4e31-baad-a1051e3bdfb0)
 
 A modern job board application built with React, Vite, and Supabase, featuring external job API integration and user authentication.
 
